@@ -37,6 +37,19 @@ export interface PlacedFurniture {
   x: number
   y: number
   rotation: number
+  /** Per-material color tints (material name → hex). '*' = wildcard for all materials. */
+  colorOverrides?: Record<string, string>
+}
+
+export interface UserFurnitureEntry {
+  id: string
+  name: string
+  emoji: string
+  blobId: string
+  modelPath: string  // blob URL — restored from IndexedDB on startup
+  scale: number
+  sizeM: { w: number; d: number; h: number }
+  hasTextures: boolean
 }
 
 export type FloorType = 'parquet' | 'tile' | 'laminate' | 'concrete'
@@ -83,6 +96,7 @@ interface RoomPayload {
 
 interface RoomStore {
   // State
+  draftId: string | null
   roomId: string | null
   apartmentId: string | null
   name: string
@@ -90,20 +104,30 @@ interface RoomStore {
   geometry: RoomGeometry
   surfaces: AppliedSurfaces
   furniture: PlacedFurniture[]
+  userFurniture: UserFurnitureEntry[]
   isDirty: boolean
   wizardStep: number
   designState: DesignState
 
   // Actions
+  setDraftId(id: string | null): void
   setCeilingHeight(h: number): void
   setWallLength(wallId: string, length: number): void
   addElement(wallId: string, element: Omit<WallElement, 'id'>): void
   removeElement(wallId: string, elementId: string): void
+  updateElement(wallId: string, elementId: string, patch: Partial<Omit<WallElement, 'id'>>): void
+  swapElements(wallId: string): void
+  swapAdjacentElements(wallId: string, id1: string, id2: string): void
   applySurface(wallId: string, materialId: string): void
   placeFurniture(item: PlacedFurniture): void
   moveFurniture(id: string, x: number, y: number, rotation: number): void
   removeFurniture(id: string): void
+  setFurnitureColors(id: string, overrides: Record<string, string>): void
+  addUserFurniture(entry: UserFurnitureEntry): void
+  removeUserFurniture(id: string): void
+  setUserFurniturePath(id: string, path: string): void
   loadRoom(room: RoomPayload): void
+  loadDraftState(state: Record<string, unknown>): void
   setRoomId(id: string): void
   markSaved(): void
   setWizardStep(step: number): void
@@ -133,6 +157,7 @@ const DEFAULT_DESIGN_STATE: DesignState = {
 export const useRoomStore = create<RoomStore>()(
   persist(
     (set) => ({
+  draftId: null,
   roomId: null,
   apartmentId: null,
   name: 'Xona',
@@ -140,9 +165,14 @@ export const useRoomStore = create<RoomStore>()(
   geometry: defaultGeometry(),
   surfaces: {},
   furniture: [],
+  userFurniture: [],
   isDirty: false,
   wizardStep: 0,
   designState: DEFAULT_DESIGN_STATE,
+
+  setDraftId(id) {
+    set({ draftId: id })
+  },
 
   setCeilingHeight(h) {
     set({ ceilingHeight: h, isDirty: true })
@@ -186,6 +216,60 @@ export const useRoomStore = create<RoomStore>()(
     }))
   },
 
+  updateElement(wallId, elementId, patch) {
+    set((state) => ({
+      isDirty: true,
+      geometry: {
+        walls: state.geometry.walls.map((w) =>
+          w.id === wallId
+            ? { ...w, elements: w.elements.map((e) => e.id === elementId ? { ...e, ...patch } : e) }
+            : w,
+        ),
+      },
+    }))
+  },
+
+  swapElements(wallId) {
+    set((state) => ({
+      isDirty: true,
+      geometry: {
+        walls: state.geometry.walls.map((w) =>
+          w.id === wallId
+            ? { ...w, elements: [...w.elements].reverse().map(e => ({ ...e, position: 0 })) }
+            : w,
+        ),
+      },
+    }))
+  },
+
+  swapAdjacentElements(wallId, id1, id2) {
+    set((state) => ({
+      isDirty: true,
+      geometry: {
+        walls: state.geometry.walls.map((w) => {
+          if (w.id !== wallId) return w;
+          const idx1 = w.elements.findIndex((e) => e.id === id1);
+          const idx2 = w.elements.findIndex((e) => e.id === id2);
+          if (idx1 === -1 || idx2 === -1) return w;
+          const el1 = w.elements[idx1];
+          const el2 = w.elements[idx2];
+          const newElements = [...w.elements];
+          if (el1.position > 0 && el2.position > 0) {
+            // Both explicitly placed — swap their positions, leave everything else
+            newElements[idx1] = { ...el1, position: el2.position };
+            newElements[idx2] = { ...el2, position: el1.position };
+          } else {
+            // Auto-placed — swap the elements in the array so resolveElementPositions
+            // lays them out in the new order; reset both positions to trigger re-layout
+            newElements[idx1] = { ...el2, position: 0 };
+            newElements[idx2] = { ...el1, position: 0 };
+          }
+          return { ...w, elements: newElements };
+        }),
+      },
+    }));
+  },
+
   applySurface(wallId, materialId) {
     set((state) => ({
       isDirty: true,
@@ -216,6 +300,29 @@ export const useRoomStore = create<RoomStore>()(
     }))
   },
 
+  setFurnitureColors(id, overrides) {
+    set((state) => ({
+      isDirty: true,
+      furniture: state.furniture.map((f) =>
+        f.id === id ? { ...f, colorOverrides: overrides } : f,
+      ),
+    }))
+  },
+
+  addUserFurniture(entry) {
+    set((state) => ({ userFurniture: [...state.userFurniture, entry] }))
+  },
+
+  removeUserFurniture(id) {
+    set((state) => ({ userFurniture: state.userFurniture.filter((f) => f.id !== id) }))
+  },
+
+  setUserFurniturePath(id, path) {
+    set((state) => ({
+      userFurniture: state.userFurniture.map((f) => f.id === id ? { ...f, modelPath: path } : f),
+    }))
+  },
+
   loadRoom(room) {
     set({
       roomId: room.id ?? null,
@@ -225,6 +332,26 @@ export const useRoomStore = create<RoomStore>()(
       geometry: room.geometry ?? defaultGeometry(),
       surfaces: room.surfaces ?? {},
       furniture: room.furniture ?? [],
+      isDirty: false,
+    })
+  },
+
+  loadDraftState(state) {
+    const s = state as {
+      ceilingHeight?: number
+      geometry?: RoomGeometry
+      wizardStep?: number
+      designState?: DesignState
+      name?: string
+      roomId?: string
+    }
+    set({
+      ceilingHeight: s.ceilingHeight ?? 2700,
+      geometry: s.geometry ?? defaultGeometry(),
+      wizardStep: s.wizardStep ?? 0,
+      designState: s.designState ?? DEFAULT_DESIGN_STATE,
+      name: s.name ?? 'Xona',
+      roomId: s.roomId ?? null,
       isDirty: false,
     })
   },
@@ -256,6 +383,7 @@ export const useRoomStore = create<RoomStore>()(
 
   resetRoom() {
     set({
+      draftId: null,
       roomId: null,
       apartmentId: null,
       name: 'Xona',
@@ -263,6 +391,7 @@ export const useRoomStore = create<RoomStore>()(
       geometry: defaultGeometry(),
       surfaces: {},
       furniture: [],
+      userFurniture: [],
       isDirty: false,
       wizardStep: 0,
       designState: DEFAULT_DESIGN_STATE,
@@ -287,14 +416,18 @@ export const useRoomStore = create<RoomStore>()(
         }
         return persisted
       },
+      // Persist local state so HMR / refreshes don't lose unsaved work.
+      // DB draft is still written on every change as the reliable cross-device backup.
       partialize: (state) => ({
-        ceilingHeight: state.ceilingHeight,
+        draftId: state.draftId,
         geometry: state.geometry,
-        surfaces: state.surfaces,
-        furniture: state.furniture,
-        isDirty: state.isDirty,
-        wizardStep: state.wizardStep,
+        ceilingHeight: state.ceilingHeight,
         designState: state.designState,
+        wizardStep: state.wizardStep,
+        name: state.name,
+        furniture: state.furniture,
+        // Persist metadata but clear modelPath (blob URLs don't survive refresh)
+        userFurniture: state.userFurniture.map((f) => ({ ...f, modelPath: '' })),
       }),
     },
   ),

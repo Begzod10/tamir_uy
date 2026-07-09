@@ -1,0 +1,43 @@
+# Dependencies
+node_modules/
+frontend/node_modules/
+
+# Build output
+frontend/dist/
+frontend/.vite/
+
+# Environment files (real secrets)
+backend/.env.local
+frontend/.env.local
+frontend/.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+backend/.venv/
+*.egg-info/
+dist/
+
+# DB / media
+*.db
+*.sqlite3
+media/
+uploads/
+
+# Playwright session cache
+.playwright-mcp/
+
+# Claude session files
+.claude/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db

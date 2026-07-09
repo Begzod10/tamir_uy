@@ -1,21 +1,28 @@
-import { Suspense, useEffect, useMemo, useRef, useState } from "react";
-import { Canvas, useFrame, useThree } from "@react-three/fiber";
+import { Suspense, memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { Canvas, useFrame, useThree, type ThreeEvent } from "@react-three/fiber";
 import {
   OrbitControls,
   Environment,
   ContactShadows,
   PerformanceMonitor,
+  Html,
+  useGLTF,
 } from "@react-three/drei";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import { useOutletContext } from "react-router-dom";
 import { useRoomStore, resolveWallCovering } from "@/store/roomStore";
-import type { RoomGeometry, DesignState, WallCovering } from "@/store/roomStore";
+import type { PlacedFurniture, UserFurnitureEntry } from "@/store/roomStore";
+import { DesignPanel } from "@/components/studio/DesignPanel";
+import type { RoomGeometry, DesignState, WallCovering, WallElement } from "@/store/roomStore";
 import { createOboyTexture } from "@/lib/oboyPatterns";
 import type { OboyPatternId } from "@/lib/oboyPatterns";
+import { resolveElementPositions } from "@/lib/wallPositions";
+import { FURNITURE_CATALOG } from "@/lib/furnitureCatalog";
 import type { Room } from "@/lib/api";
 import * as THREE from "three";
 
-interface StudioContext {
+
+export interface StudioContext {
   room: Room;
 }
 
@@ -106,7 +113,8 @@ interface WallProps {
   thickness: number;
   covering: WallCovering;
   elements: Array<{
-    type: string;
+    id: string;
+    type: 'eshik' | 'deraza' | 'balkon';
     width: number;
     height: number;
     sill_height: number;
@@ -117,9 +125,27 @@ interface WallProps {
   cz: number;
 }
 
+/*
+ * Seg stores the inner-face PLANE of each wall segment, not a box.
+ *
+ * Using PlaneGeometry with Three.js default FrontSide means:
+ *  • From inside the room the plane's normal faces the camera → VISIBLE ✓
+ *  • From outside the plane's normal faces AWAY from camera → backface-culled,
+ *    invisible — exactly like 3ds Max "Backface Cull" ✓
+ *
+ * px/py/pz — world position of the inner face plane centre
+ * ry        — Y-rotation to align the plane's +Z normal to the correct
+ *             room-inward direction:
+ *               Wall A (back)  cz<0  ry=0      normal = +Z  (into room)
+ *               Wall C (front) cz>0  ry=π      normal = −Z
+ *               Wall B (right) cx>0  ry=−π/2   normal = −X
+ *               Wall D (left)  cx<0  ry=+π/2   normal = +X
+ * pw/ph     — plane width × height
+ */
 interface Seg {
-  x: number; y: number; z: number;
-  w: number; h: number; d: number;
+  px: number; py: number; pz: number;
+  ry: number;
+  pw: number; ph: number;
   uOffset: number; uRepeat: number; vRepeat: number;
 }
 
@@ -144,8 +170,8 @@ function WallSegment({
   const paintColor = covering.kind === 'paint' ? covering.color : '#ffffff';
 
   return (
-    <mesh position={[seg.x, seg.y, seg.z]} receiveShadow castShadow>
-      <boxGeometry args={[seg.w, seg.h, seg.d]} />
+    <mesh position={[seg.px, seg.py, seg.pz]} rotation={[0, seg.ry, 0]} receiveShadow>
+      <planeGeometry args={[seg.pw, seg.ph]} />
       {covering.kind === 'paint' ? (
         <meshStandardMaterial color={paintColor} roughness={0.88} metalness={0} envMapIntensity={0.3} />
       ) : (
@@ -166,6 +192,11 @@ function Wall({ length, height, thickness, covering, elements, axis, cx, cz }: W
     covering.kind === 'oboy' ? covering.accentColor : '',
   ]);
 
+  const resolvedElements = useMemo(
+    () => resolveElementPositions(elements, length * 1000),
+    [elements, length],
+  );
+
   const segments = useMemo(() => {
     const segs: Seg[] = [];
     const s = 1 / 1000;
@@ -175,15 +206,35 @@ function Wall({ length, height, thickness, covering, elements, axis, cx, cz }: W
       sw: number, sh: number, sd: number,
       startMm: number,
     ): Seg {
-      const segLenM = (axis === 'X' ? sw : sd)
+      const segLenM = axis === 'X' ? sw : sd
       const startM = startMm / 1000
       const uOffset = (startM % WALLPAPER_WIDTH_M) / WALLPAPER_WIDTH_M
       const uRepeat = segLenM / WALLPAPER_WIDTH_M
       const vRepeat = sh / 1.0
-      return { x: posX, y: posY, z: posZ, w: sw, h: sh, d: sd, uOffset, uRepeat, vRepeat }
+
+      let px: number, py: number = posY, pz: number, ry: number, pw: number
+      const ph = sh
+
+      if (axis === 'X') {
+        // Thickness runs in Z. Inner face offset ± T/2 along Z from centre.
+        const faceDir = posZ <= 0 ? 1 : -1   // Wall A: cz<0 → +Z; Wall C: cz>0 → −Z
+        px = posX
+        pz = posZ + faceDir * thickness / 2
+        ry = faceDir > 0 ? 0 : Math.PI
+        pw = sw
+      } else {
+        // axis === 'Z': thickness runs in X. Inner face offset ± T/2 along X.
+        const faceDir = posX >= 0 ? -1 : 1   // Wall B: cx>0 → −X; Wall D: cx<0 → +X
+        px = posX + faceDir * thickness / 2
+        pz = posZ
+        ry = faceDir > 0 ? Math.PI / 2 : -Math.PI / 2
+        pw = sd
+      }
+
+      return { px, py, pz, ry, pw, ph, uOffset, uRepeat, vRepeat }
     }
 
-    if (elements.length === 0) {
+    if (resolvedElements.length === 0) {
       segs.push(makeSeg(
         cx, height / 2, cz,
         axis === 'X' ? length : thickness,
@@ -194,7 +245,7 @@ function Wall({ length, height, thickness, covering, elements, axis, cx, cz }: W
       return segs;
     }
 
-    const sorted = [...elements].sort((a, b) => a.position - b.position);
+    const sorted = [...resolvedElements].sort((a, b) => a.position - b.position);
     let cursor = 0;
 
     for (const el of sorted) {
@@ -243,7 +294,7 @@ function Wall({ length, height, thickness, covering, elements, axis, cx, cz }: W
     }
 
     return segs;
-  }, [elements, length, height, thickness, axis, cx, cz]);
+  }, [resolvedElements, length, height, thickness, axis, cx, cz]);
 
   return (
     <group>
@@ -279,7 +330,8 @@ function WindowPanes({
     const wall = geometry.walls.find((w) => w.id === wd.id);
     if (!wall) continue;
 
-    for (const el of wall.elements) {
+    const resolvedWallEls = resolveElementPositions(wall.elements, wd.length * 1000);
+    for (const el of resolvedWallEls) {
       if (el.type !== "deraza" && el.type !== "balkon") continue;
 
       const elW = el.width * s;
@@ -311,41 +363,136 @@ function WindowPanes({
 
 // ─── Baseboard trim ────────────────────────────────────────────────────────────
 
-function Baseboard({ width, depth }: { width: number; depth: number }) {
+/** Returns (centerLocal, segLen) pairs in meters, skipping door openings. */
+function boardSegments(
+  wallLenM: number,
+  elements: WallElement[],
+): Array<{ center: number; len: number }> {
+  const wallLenMm = wallLenM * 1000;
+  const resolved = resolveElementPositions(elements, wallLenMm);
+  const doors = resolved.filter(e => e.type === 'eshik').sort((a, b) => a.position - b.position);
+
+  if (doors.length === 0) return [{ center: 0, len: wallLenM }];
+
+  const segs: Array<{ center: number; len: number }> = [];
+  let cursor = 0;
+  for (const door of doors) {
+    if (door.position > cursor) {
+      const lenMm = door.position - cursor;
+      segs.push({ center: ((cursor + door.position) / 2 - wallLenMm / 2) / 1000, len: lenMm / 1000 });
+    }
+    cursor = door.position + door.width;
+  }
+  if (cursor < wallLenMm) {
+    segs.push({ center: ((cursor + wallLenMm) / 2 - wallLenMm / 2) / 1000, len: (wallLenMm - cursor) / 1000 });
+  }
+  return segs;
+}
+
+function Baseboard({ width, depth, geometry }: { width: number; depth: number; geometry: RoomGeometry }) {
   const h = 0.1;
   const t = 0.02;
   const color = "#E0D8CC";
+
+  const wallA = geometry.walls.find(w => w.id === 'A');
+  const wallB = geometry.walls.find(w => w.id === 'B');
+  const wallC = geometry.walls.find(w => w.id === 'C');
+  const wallD = geometry.walls.find(w => w.id === 'D');
+
+  const segsA = boardSegments(width, wallA?.elements ?? []);
+  const segsC = boardSegments(width, wallC?.elements ?? []);
+  const segsB = boardSegments(depth, wallB?.elements ?? []);
+  const segsD = boardSegments(depth, wallD?.elements ?? []);
+
+  const mat = <meshStandardMaterial color={color} roughness={0.7} />;
   return (
     <group>
-      <mesh position={[0, h / 2, -depth / 2 + t / 2]}>
-        <boxGeometry args={[width, h, t]} /><meshStandardMaterial color={color} roughness={0.7} />
-      </mesh>
-      <mesh position={[0, h / 2, depth / 2 - t / 2]}>
-        <boxGeometry args={[width, h, t]} /><meshStandardMaterial color={color} roughness={0.7} />
-      </mesh>
-      <mesh position={[-width / 2 + t / 2, h / 2, 0]}>
-        <boxGeometry args={[t, h, depth]} /><meshStandardMaterial color={color} roughness={0.7} />
-      </mesh>
-      <mesh position={[width / 2 - t / 2, h / 2, 0]}>
-        <boxGeometry args={[t, h, depth]} /><meshStandardMaterial color={color} roughness={0.7} />
-      </mesh>
+      {segsA.map((s, i) => (
+        <mesh key={`A${i}`} position={[s.center, h / 2, -depth / 2 + t / 2]}>
+          <boxGeometry args={[s.len, h, t]} />{mat}
+        </mesh>
+      ))}
+      {segsC.map((s, i) => (
+        <mesh key={`C${i}`} position={[s.center, h / 2, depth / 2 - t / 2]}>
+          <boxGeometry args={[s.len, h, t]} />{mat}
+        </mesh>
+      ))}
+      {segsB.map((s, i) => (
+        <mesh key={`B${i}`} position={[width / 2 - t / 2, h / 2, s.center]}>
+          <boxGeometry args={[t, h, s.len]} />{mat}
+        </mesh>
+      ))}
+      {segsD.map((s, i) => (
+        <mesh key={`D${i}`} position={[-width / 2 + t / 2, h / 2, s.center]}>
+          <boxGeometry args={[t, h, s.len]} />{mat}
+        </mesh>
+      ))}
     </group>
   );
 }
 
-// ─── Ceiling lamp ─────────────────────────────────────────────────────────────
+// ─── Ceiling disk lights ──────────────────────────────────────────────────────
 
-function CeilingLamp({ height }: { height: number }) {
+function computeDiskLightPositions(W: number, D: number): [number, number][] {
+  const minSpacing = 0.6;
+  const usableX = W * 0.5;  // 25% offset from each side wall
+  const usableZ = D * 0.5;
+  const maxNx = Math.max(1, Math.floor(usableX / minSpacing) + 1);
+  const maxNz = Math.max(1, Math.floor(usableZ / minSpacing) + 1);
+  const target = Math.max(1, Math.round((W * D) / 4));
+  const aspect = W / D;
+
+  let bestNx = 1, bestNz = 1, bestScore = Infinity;
+  for (let nx = 1; nx <= Math.min(target, maxNx); nx++) {
+    for (const nz of [Math.round(target / nx), Math.ceil(target / nx)]) {
+      if (nz < 1 || nz > maxNz) continue;
+      const spacingX = nx === 1 ? Infinity : usableX / (nx - 1);
+      const spacingZ = nz === 1 ? Infinity : usableZ / (nz - 1);
+      if (spacingX < minSpacing || spacingZ < minSpacing) continue;
+      const score = Math.abs(Math.log((nx / nz) / aspect)) + Math.abs(nx * nz - target) / target * 0.5;
+      if (score < bestScore) { bestScore = score; bestNx = nx; bestNz = nz; }
+    }
+  }
+
+  const positions: [number, number][] = [];
+  for (let ix = 0; ix < bestNx; ix++) {
+    const x = bestNx === 1 ? 0 : -usableX / 2 + ix * (usableX / (bestNx - 1));
+    for (let iz = 0; iz < bestNz; iz++) {
+      const z = bestNz === 1 ? 0 : -usableZ / 2 + iz * (usableZ / (bestNz - 1));
+      positions.push([x, z]);
+    }
+  }
+  return positions;
+}
+
+function CeilingLights({ width, depth, height }: { width: number; depth: number; height: number }) {
+  const positions = useMemo(() => computeDiskLightPositions(width, depth), [width, depth]);
+  const lightIntensity = Math.max(0.15, 1.8 / positions.length);
+
   return (
-    <group position={[0, height - 0.05, 0]}>
-      <mesh>
-        <cylinderGeometry args={[0.12, 0.12, 0.04, 16]} />
-        <meshStandardMaterial color="#BBBBBB" metalness={0.6} roughness={0.25} />
-      </mesh>
-      <mesh position={[0, -0.15, 0]}>
-        <sphereGeometry args={[0.08, 12, 12]} />
-        <meshStandardMaterial color="#FFEECC" emissive="#FFD080" emissiveIntensity={1.8} roughness={0.4} />
-      </mesh>
+    <group>
+      {positions.map(([x, z], i) => (
+        <group key={i}>
+          {/* Housing ring recessed into ceiling */}
+          <mesh position={[x, height - 0.009, z]}>
+            <cylinderGeometry args={[0.068, 0.062, 0.018, 24]} />
+            <meshStandardMaterial color="#BFBBB0" metalness={0.65} roughness={0.28} />
+          </mesh>
+          {/* Emissive lens facing down into room */}
+          <mesh position={[x, height - 0.002, z]} rotation={[Math.PI / 2, 0, 0]}>
+            <circleGeometry args={[0.05, 24]} />
+            <meshStandardMaterial color="#FFF9EE" emissive="#FFE488" emissiveIntensity={4} roughness={1} />
+          </mesh>
+          {/* Point light — warm white, decays with distance */}
+          <pointLight
+            position={[x, height - 0.06, z]}
+            color="#FFF2C8"
+            intensity={lightIntensity}
+            distance={height * 3.5}
+            decay={2}
+          />
+        </group>
+      ))}
     </group>
   );
 }
@@ -373,7 +520,7 @@ function CornerShadows({ width, depth }: { width: number; depth: number }) {
 
 // ─── Lighting ─────────────────────────────────────────────────────────────────
 
-function SceneLighting({ width, depth, height }: { width: number; depth: number; height: number }) {
+export function SceneLighting({ width, depth, height }: { width: number; depth: number; height: number }) {
   return (
     <>
       <hemisphereLight color="#FFE8CC" groundColor="#3A3020" intensity={0.8} />
@@ -392,16 +539,393 @@ function SceneLighting({ width, depth, height }: { width: number; depth: number;
         shadow-bias={-0.001}
       />
       <directionalLight position={[-width, height * 1.2, -depth]} intensity={0.4} color="#C8D8F0" />
-      <pointLight
-        position={[0, height - 0.25, 0]}
-        intensity={0.9}
-        color="#FFE0A0"
-        distance={Math.max(width, depth) * 2.5}
-        decay={2}
-        castShadow
-      />
     </>
   );
+}
+
+// ─── In-scene swap buttons ────────────────────────────────────────────────────
+
+const SwapButtons = memo(function SwapButtons({ W, D, H }: { W: number; D: number; H: number }) {
+  const { geometry, swapAdjacentElements } = useRoomStore();
+  const s = 1 / 1000;
+  const T = 0.25;
+  const T_MM = 250;
+  const buttonY = H * 0.42;
+
+  const wallDefs = useMemo(() => [
+    { id: "A", axis: "X" as const, cx: 0,                cz: -(D / 2 + T / 2), wallLenM: W,         elOffset: 0    },
+    { id: "C", axis: "X" as const, cx: 0,                cz:   D / 2 + T / 2,  wallLenM: W,         elOffset: 0    },
+    { id: "B", axis: "Z" as const, cx:  W / 2 + T / 2,  cz: 0,                wallLenM: D + 2 * T, elOffset: T_MM },
+    { id: "D", axis: "Z" as const, cx: -(W / 2 + T / 2), cz: 0,               wallLenM: D + 2 * T, elOffset: T_MM },
+  ], [W, D]);
+
+  const items: React.ReactElement[] = [];
+
+  for (const wd of wallDefs) {
+    const wall = geometry.walls.find((w) => w.id === wd.id);
+    if (!wall) continue;
+    if (wall.elements.filter((e) => e.type === "eshik" || e.type === "deraza").length < 2) continue;
+
+    const rawLenMm = (wd.id === "B" || wd.id === "D") ? D * 1000 : wd.wallLenM * 1000;
+    const resolved = resolveElementPositions(wall.elements, rawLenMm);
+    const sorted = resolved
+      .filter((e) => e.type === "eshik" || e.type === "deraza")
+      .map((e) => ({ ...e, position: e.position + wd.elOffset }))
+      .sort((a, b) => a.position - b.position);
+
+    for (let i = 0; i < sorted.length - 1; i++) {
+      const el1 = sorted[i];
+      const el2 = sorted[i + 1];
+      const gapMidMm = (el1.position + el1.width + el2.position) / 2;
+      const wallLenMm = wd.wallLenM * 1000;
+      const localOffset = (gapMidMm - wallLenMm / 2) * s;
+
+      const px = wd.axis === "X" ? wd.cx + localOffset : wd.cx;
+      const pz = wd.axis === "Z" ? wd.cz + localOffset : wd.cz;
+
+      // Capture the exact two IDs this button is responsible for
+      const wId = wd.id;
+      const e1Id = el1.id;
+      const e2Id = el2.id;
+
+      items.push(
+        <Html key={`swap-${wd.id}-${i}`} position={[px, buttonY, pz]} center zIndexRange={[50, 0]}>
+          <button
+            onClick={() => swapAdjacentElements(wId, e1Id, e2Id)}
+            style={{
+              width: "32px",
+              height: "32px",
+              borderRadius: "50%",
+              border: "1px solid rgba(0,0,0,0.14)",
+              background: "rgba(255,255,255,0.90)",
+              cursor: "pointer",
+              fontSize: "16px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              boxShadow: "0 2px 8px rgba(0,0,0,0.18)",
+              userSelect: "none",
+            }}
+          >
+            ⇄
+          </button>
+        </Html>,
+      );
+    }
+  }
+
+  return <>{items}</>;
+});
+
+// ─── Shared furniture entry (catalog + user-uploaded) ─────────────────────────
+
+type AnyFurnitureEntry = {
+  id: string
+  modelPath: string
+  scale: number
+  sizeM: { w: number; d: number; h: number }
+  hasTextures?: boolean
+}
+
+function useFurnitureEntry(furnitureId: string): AnyFurnitureEntry | undefined {
+  const userFurniture = useRoomStore((s) => s.userFurniture)
+  return (
+    FURNITURE_CATALOG.find((f) => f.id === furnitureId) ??
+    userFurniture.find((f) => f.id === furnitureId)
+  )
+}
+
+function enhanceMaterial(m: THREE.Material): THREE.Material {
+  if (!(m instanceof THREE.MeshStandardMaterial)) return m
+  if (m.map || m.normalMap || m.roughnessMap) {
+    // Clone so per-instance color overrides don't bleed to other models sharing the material
+    const c = m.clone()
+    c.name = m.name
+    return c
+  }
+  return new THREE.MeshStandardMaterial({
+    name: m.name,
+    color: m.color.clone(),
+    roughness: 0.65,
+    metalness: 0.05,
+    envMapIntensity: 1.2,
+  })
+}
+
+/** Set shadows on every mesh + enhance flat materials. Preserves single-vs-array structure. */
+function prepareMesh(obj: THREE.Object3D) {
+  obj.traverse((child) => {
+    if (!(child instanceof THREE.Mesh)) return
+    child.castShadow = true
+    child.receiveShadow = true
+    if (Array.isArray(child.material)) {
+      child.material = child.material.map(enhanceMaterial)
+    } else {
+      child.material = enhanceMaterial(child.material as THREE.Material)
+    }
+  })
+}
+
+/** Apply per-material color tints. Uses '*' as wildcard for all materials. */
+function applyColorOverrides(obj: THREE.Object3D, overrides: Record<string, string>) {
+  const wildcard = overrides['*']
+  obj.traverse((child) => {
+    if (!(child instanceof THREE.Mesh)) return
+    const mats = Array.isArray(child.material) ? child.material : [child.material]
+    mats.forEach((m) => {
+      if (!(m instanceof THREE.MeshStandardMaterial)) return
+      const named = overrides[m.name]
+      if (named) m.color.set(named)
+      else if (wildcard) m.color.set(wildcard)
+    })
+  })
+}
+
+// ─── Placed furniture renderer ────────────────────────────────────────────────
+
+function FurnitureItem({ item }: { item: PlacedFurniture }) {
+  const entry = useFurnitureEntry(item.furniture_id)
+  const modelPath = entry?.modelPath ?? ''
+  const { scene } = useGLTF(modelPath || '/models/table_boconcept_hauge_nodrc.glb')
+  const cloned = useMemo(() => {
+    const c = scene.clone(true)
+    prepareMesh(c)
+    return c
+  }, [scene]);
+
+  useLayoutEffect(() => {
+    if (!item.colorOverrides || Object.keys(item.colorOverrides).length === 0) return
+    applyColorOverrides(cloned, item.colorOverrides)
+  }, [cloned, item.colorOverrides])
+
+  if (!entry || !modelPath) return null;
+  return (
+    <primitive
+      object={cloned}
+      position={[item.x / 1000, 0, item.y / 1000]}
+      rotation={[0, item.rotation, 0]}
+      scale={entry.scale}
+    />
+  );
+}
+
+export function FurnitureModels() {
+  const furniture = useRoomStore((s) => s.furniture);
+  if (furniture.length === 0) return null;
+  return (
+    <>
+      {furniture.map((item) => (
+        <FurnitureItem key={item.id} item={item} />
+      ))}
+    </>
+  );
+}
+
+// Preload all catalog models so first render is instant
+FURNITURE_CATALOG.forEach((e) => useGLTF.preload(e.modelPath));
+
+// ─── Draggable furniture (ThreeDPage only) ────────────────────────────────────
+
+function DraggableFurnitureItem({
+  item,
+  isDragging,
+  dragEnabled,
+  dragPosRef,
+  onMeshPointerDown,
+  onButtonPointerDown,
+}: {
+  item: PlacedFurniture
+  isDragging: boolean
+  dragEnabled: boolean
+  dragPosRef: RefObject<THREE.Vector3>
+  onMeshPointerDown: (e: ThreeEvent<PointerEvent>) => void
+  onButtonPointerDown: (e: React.PointerEvent) => void
+}) {
+  const entry = useFurnitureEntry(item.furniture_id)
+  const modelPath = entry?.modelPath ?? ''
+  const { scene } = useGLTF(modelPath || '/models/table_boconcept_hauge_nodrc.glb')
+  const cloned = useMemo(() => {
+    const c = scene.clone(true)
+    prepareMesh(c)
+    return c
+  }, [scene])
+  const groupRef = useRef<THREE.Group>(null)
+
+  useLayoutEffect(() => {
+    if (!item.colorOverrides || Object.keys(item.colorOverrides).length === 0) return
+    applyColorOverrides(cloned, item.colorOverrides)
+  }, [cloned, item.colorOverrides])
+
+  useFrame(() => {
+    const pos = dragPosRef.current
+    if (isDragging && groupRef.current && pos) {
+      groupRef.current.position.x = pos.x
+      groupRef.current.position.z = pos.z
+    }
+  })
+
+  if (!entry || !modelPath) return null
+
+  const buttonH = (entry.sizeM.h ?? 1) + 0.18
+
+  return (
+    <group ref={groupRef} position={[item.x / 1000, 0, item.y / 1000]}>
+      <primitive
+        object={cloned}
+        rotation={[0, item.rotation, 0]}
+        scale={entry.scale}
+        onPointerDown={dragEnabled ? onMeshPointerDown : undefined}
+        onPointerEnter={() => { if (dragEnabled) document.body.style.cursor = 'grab' }}
+        onPointerLeave={() => { if (!isDragging) document.body.style.cursor = '' }}
+      />
+      {dragEnabled && (
+        <Html position={[0, buttonH, 0]} center zIndexRange={[100, 0]} style={{ pointerEvents: 'none' }}>
+          <button
+            onPointerDown={(e) => { e.stopPropagation(); onButtonPointerDown(e) }}
+            title="Siljitish"
+            style={{
+              pointerEvents: 'all',
+              width: 30,
+              height: 30,
+              borderRadius: '50%',
+              border: isDragging ? '2px solid #D85A30' : '1.5px solid rgba(0,0,0,0.18)',
+              background: isDragging ? '#D85A30' : 'rgba(255,255,255,0.92)',
+              color: isDragging ? '#fff' : '#555',
+              cursor: isDragging ? 'grabbing' : 'grab',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              boxShadow: '0 2px 8px rgba(0,0,0,0.22)',
+              userSelect: 'none',
+              touchAction: 'none',
+            }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M11 3l-4 4h3v3H7V7l-4 4 4 4v-3h3v3H7l4 4 4-4h-3v-3h3v3l4-4-4-4v3h-3V7h3l-4-4z"/>
+            </svg>
+          </button>
+        </Html>
+      )}
+    </group>
+  )
+}
+
+function DraggableFurnitureModels({
+  controlsRef,
+  roomW,
+  roomD,
+  dragEnabled,
+}: {
+  controlsRef: RefObject<OrbitControlsImpl | null>
+  roomW: number
+  roomD: number
+  dragEnabled: boolean
+}) {
+  const furniture = useRoomStore((s) => s.furniture)
+  const userFurniture = useRoomStore((s) => s.userFurniture)
+  const moveFurniture = useRoomStore((s) => s.moveFurniture)
+  const [draggingId, setDraggingId] = useState<string | null>(null)
+  const dragPosRef = useRef(new THREE.Vector3())
+  const draggingIdRef = useRef<string | null>(null)
+  const furnitureRef = useRef(furniture)
+  furnitureRef.current = furniture
+  // Half-size of the item being dragged — for wall collision clamping
+  const dragHalfRef = useRef({ w: 0.3, d: 0.3 })
+  const { camera, gl } = useThree()
+  const floorPlane = useMemo(() => new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), [])
+  const raycaster = useMemo(() => new THREE.Raycaster(), [])
+  const hitPoint = useRef(new THREE.Vector3())
+
+  function resolveEntry(furnitureId: string): AnyFurnitureEntry | undefined {
+    return (
+      FURNITURE_CATALOG.find((f) => f.id === furnitureId) ??
+      (userFurniture as UserFurnitureEntry[]).find((f) => f.id === furnitureId)
+    )
+  }
+
+  function activateDrag(item: PlacedFurniture) {
+    const entry = resolveEntry(item.furniture_id)
+    dragHalfRef.current = { w: (entry?.sizeM.w ?? 0.6) / 2, d: (entry?.sizeM.d ?? 0.6) / 2 }
+    dragPosRef.current.set(item.x / 1000, 0, item.y / 1000)
+    draggingIdRef.current = item.id
+    setDraggingId(item.id)
+    if (controlsRef.current) controlsRef.current.enabled = false
+    document.body.style.cursor = 'grabbing'
+  }
+
+  function startDragFromMesh(item: PlacedFurniture, e: ThreeEvent<PointerEvent>) {
+    if (!dragEnabled) return
+    e.stopPropagation()
+    activateDrag(item)
+  }
+
+  function startDragFromButton(item: PlacedFurniture, e: React.PointerEvent) {
+    if (!dragEnabled) return
+    e.stopPropagation()
+    e.preventDefault()
+    activateDrag(item)
+  }
+
+  function commitDrag() {
+    const id = draggingIdRef.current
+    if (!id) return
+    const item = furnitureRef.current.find((f) => f.id === id)
+    if (item) {
+      moveFurniture(id, dragPosRef.current.x * 1000, dragPosRef.current.z * 1000, item.rotation)
+    }
+    draggingIdRef.current = null
+    setDraggingId(null)
+    if (controlsRef.current) controlsRef.current.enabled = true
+    document.body.style.cursor = ''
+  }
+
+  useEffect(() => {
+    if (!draggingId) return
+    const canvas = gl.domElement
+
+    const handleMove = (e: PointerEvent) => {
+      const rect = canvas.getBoundingClientRect()
+      const ndc = new THREE.Vector2(
+        ((e.clientX - rect.left) / rect.width) * 2 - 1,
+        -((e.clientY - rect.top) / rect.height) * 2 + 1,
+      )
+      raycaster.setFromCamera(ndc, camera)
+      if (!raycaster.ray.intersectPlane(floorPlane, hitPoint.current)) return
+
+      // Clamp to room walls (furniture edge must not cross wall face)
+      const { w, d } = dragHalfRef.current
+      const halfW = roomW / 2
+      const halfD = roomD / 2
+      const x = Math.max(-halfW + w, Math.min(halfW - w, hitPoint.current.x))
+      const z = Math.max(-halfD + d, Math.min(halfD - d, hitPoint.current.z))
+      dragPosRef.current.set(x, 0, z)
+    }
+
+    canvas.addEventListener('pointermove', handleMove)
+    window.addEventListener('pointerup', commitDrag)
+    return () => {
+      canvas.removeEventListener('pointermove', handleMove)
+      window.removeEventListener('pointerup', commitDrag)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draggingId, roomW, roomD])
+
+  return (
+    <>
+      {furniture.map((item) => (
+        <Suspense key={item.id} fallback={null}>
+          <DraggableFurnitureItem
+            item={item}
+            isDragging={draggingId === item.id}
+            dragEnabled={dragEnabled}
+            dragPosRef={dragPosRef}
+            onMeshPointerDown={(e) => startDragFromMesh(item, e)}
+            onButtonPointerDown={(e) => startDragFromButton(item, e)}
+          />
+        </Suspense>
+      ))}
+    </>
+  )
 }
 
 // ─── Full room scene ──────────────────────────────────────────────────────────
@@ -414,7 +938,7 @@ function shadeCovering(covering: WallCovering, factor: number): WallCovering {
   return { ...covering, baseColor: shadeHex(covering.baseColor, factor) }
 }
 
-function RoomScene({
+export function RoomScene({
   room,
   geometry,
   topView,
@@ -430,7 +954,7 @@ function RoomScene({
   const W = room.width;
   const D = room.length;
   const H = room.ceiling_height;
-  const T = 0.08;
+  const T = 0.25; // 25 cm wall thickness
 
   const wallA = geometry.walls.find((w) => w.id === "A");
   const wallB = geometry.walls.find((w) => w.id === "B");
@@ -443,38 +967,69 @@ function RoomScene({
   const coveringC = shadeCovering(resolveWallCovering(designState.wallCoverings, 'C'), 0.92);
   const coveringD = shadeCovering(resolveWallCovering(designState.wallCoverings, 'D'), 0.82);
 
+  /*
+   * Shell topology — "inner walls smaller in width":
+   *
+   *   Walls B and D (sides) span the FULL OUTER depth D+2T — they own the
+   *   four corners.  Walls A and C (back/front) span only the INNER width W
+   *   and fit between B and D.
+   *
+   *   Top-down plan (T = 0.25 m):
+   *
+   *     ←D+2T→
+   *     ┌─────┐
+   *     │ ┌─┐ │  ← Wall A (inner W only)
+   *     │ │ │ │  ← B (left) / D (right) own corners + inner strip
+   *     │ └─┘ │  ← Wall C (inner W only)
+   *     └─────┘
+   *
+   *   Result:
+   *   • Interior L-corners: A inner face (z=±D/2) meets B inner face (x=±W/2)
+   *     at a perfect right angle, no overlap.
+   *   • Exterior: B/D outer face (x=±(W/2+T)) runs the full outer height
+   *     including corners — no exposed end-cap faces, no seams.
+   *
+   *   Element positions in B/D are stored relative to the interior span D.
+   *   Pre-resolve them, then shift by T so they land within the D+2T wall.
+   */
+  const T_MM = Math.round(T * 1000);
+  const elementsBOuter = resolveElementPositions(wallB?.elements ?? [], D * 1000)
+    .map(el => ({ ...el, position: el.position + T_MM }));
+  const elementsDOuter = resolveElementPositions(wallD?.elements ?? [], D * 1000)
+    .map(el => ({ ...el, position: el.position + T_MM }));
+
   return (
     <group>
       <WoodFloor width={W} depth={D} floorType={designState.floorType} />
 
-      {/* Ceiling — hidden in top view so you see the floor plan */}
+      {/* Ceiling */}
       {!topView && (
         <mesh rotation={[Math.PI / 2, 0, 0]} position={[0, H, 0]}>
           <planeGeometry args={[W, D]} />
-          <meshStandardMaterial color={CEILING_DEFAULT} roughness={0.95} side={THREE.DoubleSide} />
+          <meshStandardMaterial color={CEILING_DEFAULT} roughness={0.95} />
         </mesh>
       )}
 
-      {/* Wall A — back */}
+      {/* Wall A — back, inner width W only, inner face at z = -D/2 */}
       <Wall wallId="A" length={W} height={H} thickness={T} covering={coveringA}
-        elements={wallA?.elements ?? []} axis="X" cx={0} cz={-D / 2} />
+        elements={wallA?.elements ?? []} axis="X" cx={0} cz={-(D / 2 + T / 2)} />
 
-      {/* Wall B — right */}
-      <Wall wallId="B" length={D} height={H} thickness={T} covering={coveringB}
-        elements={wallB?.elements ?? []} axis="Z" cx={W / 2} cz={0} />
+      {/* Wall B — right, full outer depth D+2T (owns corners), inner face at x = +W/2 */}
+      <Wall wallId="B" length={D + 2 * T} height={H} thickness={T} covering={coveringB}
+        elements={elementsBOuter} axis="Z" cx={W / 2 + T / 2} cz={0} />
 
-      {/* Wall C — front */}
+      {/* Wall C — front, inner width W only, inner face at z = +D/2 */}
       <Wall wallId="C" length={W} height={H} thickness={T} covering={coveringC}
-        elements={wallC?.elements ?? []} axis="X" cx={0} cz={D / 2} />
+        elements={wallC?.elements ?? []} axis="X" cx={0} cz={D / 2 + T / 2} />
 
-      {/* Wall D — left */}
-      <Wall wallId="D" length={D} height={H} thickness={T} covering={coveringD}
-        elements={wallD?.elements ?? []} axis="Z" cx={-W / 2} cz={0} />
+      {/* Wall D — left, full outer depth D+2T (owns corners), inner face at x = -W/2 */}
+      <Wall wallId="D" length={D + 2 * T} height={H} thickness={T} covering={coveringD}
+        elements={elementsDOuter} axis="Z" cx={-(W / 2 + T / 2)} cz={0} />
 
       <WindowPanes geometry={geometry} wallWidth={W} wallDepth={D} />
-      <Baseboard width={W} depth={D} />
+      <Baseboard width={W} depth={D} geometry={geometry} />
       <CornerShadows width={W} depth={D} />
-      <CeilingLamp height={H} />
+      <CeilingLights width={W} depth={D} height={H} />
 
       {showContactShadows && (
         <ContactShadows
@@ -491,26 +1046,50 @@ function RoomScene({
 
 // ─── View presets ─────────────────────────────────────────────────────────────
 
-type ViewPreset = "corner" | "front" | "top" | "left" | "right" | "back";
+type ViewPreset = "corner" | "front" | "back" | "top";
 
 const VIEW_LABELS: Record<ViewPreset, string> = {
   corner: "Burchak",
   front:  "Old tomon",
-  back:   "Orqa",
-  left:   "Chap",
-  right:  "O'ng",
+  back:   "3D",
   top:    "Yuqori",
 };
 
+/*
+ * All perspective presets place the camera INSIDE the room so only the
+ * interior wall faces (facing toward the camera) are ever visible — like
+ * 3ds Max backface culling.  The orbit radius is clamped to ≤ 88% of the
+ * shortest half-dimension so the user can never drag the camera outside.
+ *
+ * Top view is the only mode that lifts the camera above the room; it is
+ * treated as an architectural plan view and gets a relaxed maxDistance.
+ */
 function getCamera(preset: ViewPreset, W: number, D: number, H: number) {
+  const eyeH  = H * 0.56;          // eye-level height inside the room
+  const cx     = W * 0.34;          // ~34% from centre toward a side wall
+  const cz     = D * 0.34;
+  const lookH  = H * 0.42;          // look-at height (slightly below eye)
   switch (preset) {
-    case "corner": return { position: [W * 0.8,      H * 0.8,  D * 1.15]  as [number,number,number], target: [0, H * 0.4, 0]         as [number,number,number] };
-    case "front":  return { position: [0,             H * 0.5,  D * 1.45]  as [number,number,number], target: [0, H * 0.4, -D * 0.1]   as [number,number,number] };
-    case "back":   return { position: [0,             H * 0.5, -D * 1.45]  as [number,number,number], target: [0, H * 0.4,  D * 0.1]   as [number,number,number] };
-    case "left":   return { position: [-W * 1.45,     H * 0.5,  0]          as [number,number,number], target: [ W * 0.1, H * 0.4, 0]   as [number,number,number] };
-    case "right":  return { position: [ W * 1.45,     H * 0.5,  0]          as [number,number,number], target: [-W * 0.1, H * 0.4, 0]   as [number,number,number] };
-    // Small X offset avoids gimbal lock in top view
-    case "top":    return { position: [ W * 0.08,     H * 3.5,  0]          as [number,number,number], target: [0, 0, 0]                as [number,number,number] };
+    // Interior corner: standing near back-left, looking toward front-right
+    case "corner": return {
+      position: [-cx, eyeH, -cz] as [number,number,number],
+      target:   [ cx * 0.3, lookH, cz * 0.3] as [number,number,number],
+    };
+    // Front wall: standing near front, looking toward back
+    case "front": return {
+      position: [0, eyeH,  cz] as [number,number,number],
+      target:   [0, lookH, -cz * 0.4] as [number,number,number],
+    };
+    // Back wall: standing near back, looking toward front
+    case "back": return {
+      position: [0, eyeH,  -cz] as [number,number,number],
+      target:   [0, lookH,  cz * 0.4] as [number,number,number],
+    };
+    // Top / plan view — aerial only
+    case "top": return {
+      position: [W * 0.08, H * 3.5, 0] as [number,number,number],
+      target:   [0, 0, 0]               as [number,number,number],
+    };
   }
 }
 
@@ -523,7 +1102,7 @@ function CameraAnimator({
 }: {
   target: [number, number, number];
   position: [number, number, number];
-  controlsRef: React.RefObject<OrbitControlsImpl | null>;
+  controlsRef: RefObject<OrbitControlsImpl | null>;
 }) {
   const { camera } = useThree();
   const targetPos = useMemo(() => new THREE.Vector3(...position), [position]);
@@ -578,13 +1157,21 @@ function CameraAnimator({
 export default function ThreeDPage() {
   const { room } = useOutletContext<StudioContext>();
   const { geometry, designState } = useRoomStore();
-  const [preset, setPreset] = useState<ViewPreset>("corner");
+  const [preset, setPreset] = useState<ViewPreset>("back");
   const [dpr, setDpr] = useState<number | [number, number]>([1, 2]);
   const [showContactShadows, setShowContactShadows] = useState(true);
+  const [dragEnabled, setDragEnabled] = useState(false);
   const controlsRef = useRef<OrbitControlsImpl | null>(null);
 
   const topView = preset === "top";
-  const cam = getCamera(preset, room.width, room.length, room.ceiling_height);
+  const cam = useMemo(
+    () => getCamera(preset, room.width, room.length, room.ceiling_height),
+    [preset, room.width, room.length, room.ceiling_height],
+  );
+
+  // Interior orbit radius: just under the shortest half-wall distance from centre.
+  // This ensures the camera never escapes the room during free drag.
+  const interiorMaxDist = Math.min(room.width, room.length) / 2 * 0.86;
   const maxPolarAngle = Math.PI * 0.88;
 
   // Initial camera position — only used on first mount
@@ -595,28 +1182,57 @@ export default function ThreeDPage() {
   );
 
   return (
-    <div className="flex flex-col" style={{ height: "calc(100vh - 108px)" }}>
-      {/* Toolbar */}
-      <div className="flex items-center gap-1.5 px-4 py-2 bg-surface border-b border-gray-200 text-xs shrink-0">
-        <span className="mr-1 font-medium text-gray-600">Ko'rinish:</span>
-        {(["corner", "front", "back", "left", "right", "top"] as ViewPreset[]).map((v) => (
-          <button
-            key={v}
-            onClick={() => setPreset(v)}
-            className={`px-3 py-1 rounded-full transition-colors ${
-              preset === v
-                ? "bg-brand text-white font-medium"
-                : "bg-gray-100 hover:bg-gray-200 text-gray-700"
-            }`}
-          >
-            {VIEW_LABELS[v]}
-          </button>
-        ))}
-        <span className="ml-auto text-gray-400">Drag: aylantirish · Scroll: zoom</span>
-      </div>
+    <div className="flex" style={{ height: "calc(100vh - 108px)" }}>
+      {/* Left: toolbar + canvas */}
+      <div className="flex-1 flex flex-col min-w-0">
+        {/* Toolbar */}
+        <div className="flex items-center gap-1.5 px-4 py-2 bg-surface border-b border-gray-200 text-xs shrink-0">
+          <span className="mr-1 font-medium text-gray-600">Ko'rinish:</span>
+          {(["back", "top"] as ViewPreset[]).map((v) => (
+            <button
+              key={v}
+              onClick={() => setPreset(v)}
+              className={`px-3 py-1 rounded-full transition-colors ${
+                preset === v
+                  ? "bg-brand text-white font-medium"
+                  : "bg-gray-100 hover:bg-gray-200 text-gray-700"
+              }`}
+            >
+              {VIEW_LABELS[v]}
+            </button>
+          ))}
+          <div className="ml-auto flex items-center gap-2">
+            <button
+              onClick={() => setDragEnabled((v) => !v)}
+              title={dragEnabled ? "Mebel joylashtirishni bloklash" : "Mebelni siljitish rejimi"}
+              className={`flex items-center gap-1.5 px-3 py-1 rounded-full font-medium transition-colors ${
+                dragEnabled
+                  ? "bg-brand text-white"
+                  : "bg-gray-100 hover:bg-gray-200 text-gray-600"
+              }`}
+            >
+              {dragEnabled ? (
+                <>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M18 8h-1V6A5 5 0 0 0 7 6v2H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V10a2 2 0 0 0-2-2zm-6 9a2 2 0 1 1 0-4 2 2 0 0 1 0 4zm3.1-9H8.9V6A3.1 3.1 0 0 1 12 2.9 3.1 3.1 0 0 1 15.1 6v2z"/>
+                  </svg>
+                  Siljitish yoqiq
+                </>
+              ) : (
+                <>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 17a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm6-9a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V10a2 2 0 0 1 2-2h1V6a5 5 0 0 1 9.9-1h-2.1A3 3 0 0 0 9 6v2h9z"/>
+                  </svg>
+                  Siljitish
+                </>
+              )}
+            </button>
+            <span className="text-gray-400">Drag: aylantirish · Scroll: zoom</span>
+          </div>
+        </div>
 
-      {/* 3D Canvas — no key={preset}, camera animated via lerp */}
-      <div className="flex-1 min-h-0">
+        {/* 3D Canvas — no key={preset}, camera animated via lerp */}
+        <div className="flex-1 min-h-0">
         <Canvas
           shadows="soft"
           camera={{ position: initCam.position, fov: 55, near: 0.05, far: 80 }}
@@ -653,19 +1269,20 @@ export default function ThreeDPage() {
               designState={designState}
               showContactShadows={showContactShadows}
             />
+            <SwapButtons W={room.width} D={room.length} H={room.ceiling_height} />
+            <DraggableFurnitureModels controlsRef={controlsRef} roomW={room.width} roomD={room.length} dragEnabled={dragEnabled} />
 
             <OrbitControls
               ref={controlsRef}
               target={initCam.target}
               enableDamping
-              dampingFactor={0.12}
-              minDistance={0.5}
-              maxDistance={Math.max(room.width, room.length) * 4}
+              dampingFactor={0.06}
+              minDistance={0.25}
+              maxDistance={topView ? Math.max(room.width, room.length) * 4 : interiorMaxDist}
               maxPolarAngle={maxPolarAngle}
-              minPolarAngle={0.0}
-              rotateSpeed={1.0}
-              zoomSpeed={1.2}
-              panSpeed={0.8}
+              minPolarAngle={topView ? 0 : 0.08}
+              rotateSpeed={topView ? 0.6 : -0.45}
+              zoomSpeed={0.8}
             />
 
             <CameraAnimator
@@ -675,7 +1292,11 @@ export default function ThreeDPage() {
             />
           </Suspense>
         </Canvas>
+        </div>
       </div>
+
+      {/* Right: design panel */}
+      <DesignPanel room={room} />
     </div>
   );
 }
