@@ -74,7 +74,8 @@ export default function DokonPage() {
   return (
     <div className="min-h-screen bg-paper pb-4">
       {/* Header */}
-      <div className="bg-white px-5 pt-12 pb-4">
+      <div className="bg-white px-5 pt-12 pb-4 lg:pt-8">
+        <div className="lg:max-w-6xl lg:mx-auto lg:px-3">
         <div className="flex items-center justify-between">
           <h1 className="text-[24px] font-extrabold text-gray-900">Do'kon</h1>
           <button className="relative w-11 h-11 rounded-[14px] bg-[#F3F4F6] flex items-center justify-center">
@@ -89,9 +90,10 @@ export default function DokonPage() {
             )}
           </button>
         </div>
+        </div>
       </div>
 
-      <div className="px-5 pt-4">
+      <div className="px-5 pt-4 lg:max-w-6xl lg:mx-auto lg:px-8">
         {/* Banner */}
         <div
           className="rounded-[20px] p-4 mb-4"
@@ -127,7 +129,7 @@ export default function DokonPage() {
         </div>
 
         {/* Product grid */}
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-4">
           {filtered.map((p) => (
             <ProductCard key={p.id} product={p} />
           ))}

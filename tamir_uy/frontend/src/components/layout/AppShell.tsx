@@ -1,3 +1,4 @@
+import type React from 'react'
 import { useState } from 'react'
 import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 
@@ -49,7 +50,7 @@ function NewProjectSheet({ onClose }: { onClose: () => void }) {
       bg: "#EEF2FF",
       title: "LiDAR skaner",
       desc: "Xonani LiDAR yordamida skanerlang va avtomatik 3D model oling",
-      action: () => { onClose(); navigate("/wizard?mode=lidar") },
+      action: () => { onClose(); navigate("/scan/lidar") },
     },
     {
       icon: (
@@ -62,7 +63,7 @@ function NewProjectSheet({ onClose }: { onClose: () => void }) {
       bg: "#FFF1E7",
       title: "360° Foto skan",
       desc: "Xonani 360° rasmga oling — ilova nuqtalarni o'zi belgilaydi",
-      action: () => { onClose(); navigate("/wizard?mode=360") },
+      action: () => { onClose(); navigate("/scan/360") },
     },
     {
       icon: (
@@ -120,13 +121,97 @@ function NewProjectSheet({ onClose }: { onClose: () => void }) {
   )
 }
 
-// ─── Bottom Nav ───────────────────────────────────────────────────────────────
+// ─── Desktop Sidebar Icons ────────────────────────────────────────────────────
+
+function IconWorkers() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/>
+      <circle cx="9" cy="7" r="4"/>
+      <path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/>
+    </svg>
+  )
+}
+
+function IconProfile() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/>
+      <circle cx="12" cy="7" r="4"/>
+    </svg>
+  )
+}
+
+const SIDEBAR_NAV: Array<{ to: string; label: string; icon: (active: boolean) => React.ReactNode }> = [
+  { to: '/projects', label: 'Uy',      icon: (a) => <IconHome filled={a} /> },
+  { to: '/dokon',    label: "Do'kon",  icon: (a) => <IconShop filled={a} /> },
+  { to: '/ustalar',  label: 'Ustalar', icon: () => <IconWorkers /> },
+  { to: '/profile',  label: 'Profil',  icon: () => <IconProfile /> },
+]
+
+// ─── Desktop Sidebar ──────────────────────────────────────────────────────────
+
+function DesktopSidebar({ onNew }: { onNew: () => void }) {
+  return (
+    <aside className="hidden lg:flex flex-col fixed left-0 top-0 bottom-0 w-60 bg-white border-r border-[#F0F1F4] z-30">
+      {/* Logo */}
+      <div className="px-5 pt-8 pb-6">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-brand flex items-center justify-center text-lg flex-shrink-0">🏠</div>
+          <span className="text-[17px] font-extrabold text-gray-900">UyTa'mir</span>
+        </div>
+      </div>
+
+      {/* Nav */}
+      <nav className="flex-1 px-3 flex flex-col gap-1">
+        {SIDEBAR_NAV.map(({ to, label, icon }) => (
+          <NavLink
+            key={to}
+            to={to}
+            className={({ isActive }) =>
+              `flex items-center gap-3 px-3 py-2.5 rounded-xl text-[14px] font-semibold transition-colors ${
+                isActive
+                  ? 'bg-brand-tint text-brand'
+                  : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+              }`
+            }
+          >
+            {({ isActive }) => (
+              <>
+                <span className={isActive ? 'text-brand' : 'text-gray-400'}>
+                  {icon(isActive)}
+                </span>
+                {label}
+              </>
+            )}
+          </NavLink>
+        ))}
+      </nav>
+
+      {/* New project button */}
+      <div className="p-4">
+        <button
+          onClick={onNew}
+          className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-brand text-white text-[14px] font-bold hover:bg-brand-light transition-colors"
+          style={{ boxShadow: '0 14px 28px -10px rgba(30,64,175,.4)' }}
+        >
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M8 2v12M2 8h12" stroke="white" strokeWidth="2.5" strokeLinecap="round"/>
+          </svg>
+          Yangi loyiha
+        </button>
+      </div>
+    </aside>
+  )
+}
+
+// ─── Mobile Bottom Nav ────────────────────────────────────────────────────────
 
 function BottomNav({ onFab }: { onFab: () => void }) {
   return (
     <nav
       aria-label="Asosiy navigatsiya"
-      className="fixed bottom-0 left-0 right-0 z-30 bg-white h-[94px] border-t border-[#F0F1F4]"
+      className="lg:hidden fixed bottom-0 left-0 right-0 z-30 bg-white h-[94px] border-t border-[#F0F1F4]"
       style={{
         boxShadow: '0 -10px 26px rgba(17,24,39,.06)',
         paddingBottom: 'env(safe-area-inset-bottom)',
@@ -196,12 +281,23 @@ export function AppShell() {
   const [sheetOpen, setSheetOpen] = useState(false)
 
   return (
-    <div className="flex flex-col min-h-screen bg-paper">
-      <main className="flex-1 pb-[94px]">
-        <Outlet />
-      </main>
+    <div className="flex min-h-screen bg-paper">
+      {/* Desktop: fixed sidebar */}
+      <DesktopSidebar onNew={() => setSheetOpen(true)} />
+
+      {/* Content shifts right on desktop */}
+      <div className="flex-1 lg:ml-60 flex flex-col min-h-screen">
+        <main className="flex-1 pb-[94px] lg:pb-0">
+          <Outlet />
+        </main>
+      </div>
+
+      {/* Mobile: bottom nav */}
       <BottomNav onFab={() => setSheetOpen(true)} />
-      {sheetOpen && <NewProjectSheet onClose={() => setSheetOpen(false)} />}
+
+      {sheetOpen && (
+        <NewProjectSheet onClose={() => setSheetOpen(false)} />
+      )}
     </div>
   )
 }

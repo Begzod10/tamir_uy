@@ -180,52 +180,67 @@ export default function ProjectsPage() {
   const latest = apartments[0];
 
   return (
-    <div className="min-h-screen bg-paper px-5 pt-12 pb-4">
-      {/* Greeting row */}
-      <div className="flex items-center justify-between mb-5">
-        <div>
-          <p className="text-[15px] text-muted font-medium">Xush kelibsiz</p>
-          <p className="text-[25px] font-extrabold text-gray-900">Salom! 👋</p>
-        </div>
-        <div
-          className="flex items-center gap-2 px-3 py-1.5 rounded-[14px]"
-          style={{ background: "#F3F4F6" }}
-        >
-          <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: "#F97316" }} />
-          <span className="text-[14px] font-bold text-brand">UyRemont</span>
+    <div className="min-h-screen bg-paper">
+      {/* Desktop: max-width container */}
+      <div className="px-5 pt-12 pb-4 lg:max-w-6xl lg:mx-auto lg:px-8 lg:pt-10">
+
+        {/* Mobile layout: vertical stack. Desktop: 2-column grid */}
+        <div className="lg:grid lg:grid-cols-5 lg:gap-10">
+
+          {/* Left col (desktop): greeting + hero */}
+          <div className="lg:col-span-3">
+            {/* Greeting row */}
+            <div className="flex items-center justify-between mb-5">
+              <div>
+                <p className="text-[15px] text-muted font-medium">Xush kelibsiz</p>
+                <p className="text-[25px] font-extrabold text-gray-900">Salom! 👋</p>
+              </div>
+              <div
+                className="flex items-center gap-2 px-3 py-1.5 rounded-[14px]"
+                style={{ background: "#F3F4F6" }}
+              >
+                <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: "#F97316" }} />
+                <span className="text-[14px] font-bold text-brand">UyRemont</span>
+              </div>
+            </div>
+
+            {/* Hero card */}
+            {isLoading ? (
+              <div className="rounded-[22px] bg-gray-200 h-64 animate-pulse mb-5" />
+            ) : (
+              <HeroCard apartment={latest} />
+            )}
+          </div>
+
+          {/* Right col (desktop): project list. On mobile: below hero */}
+          <div className="lg:col-span-2">
+            {/* Project list header */}
+            <div className="flex items-center justify-between mb-3 lg:mt-0 lg:pt-0">
+              <h2 className="text-[17px] font-extrabold text-gray-900">Mening loyihalarim</h2>
+              {apartments.length > 0 && (
+                <button className="text-[13px] font-semibold text-brand">Barchasi</button>
+              )}
+            </div>
+
+            {isLoading ? (
+              <div className="flex flex-col gap-3">
+                {[1, 2].map((i) => (
+                  <div key={i} className="h-20 bg-gray-200 rounded-[18px] animate-pulse" />
+                ))}
+              </div>
+            ) : apartments.length === 0 ? (
+              <EmptyProjects />
+            ) : (
+              <div className="flex flex-col gap-3">
+                {apartments.map((apt) => (
+                  <ProjectCard key={apt.id} apt={apt} />
+                ))}
+              </div>
+            )}
+          </div>
+
         </div>
       </div>
-
-      {/* Hero card */}
-      {isLoading ? (
-        <div className="rounded-[22px] bg-gray-200 h-64 animate-pulse mb-5" />
-      ) : (
-        <HeroCard apartment={latest} />
-      )}
-
-      {/* Project list header */}
-      <div className="flex items-center justify-between mb-3">
-        <h2 className="text-[17px] font-extrabold text-gray-900">Mening loyihalarim</h2>
-        {apartments.length > 0 && (
-          <button className="text-[13px] font-semibold text-brand">Barchasi</button>
-        )}
-      </div>
-
-      {isLoading ? (
-        <div className="flex flex-col gap-3">
-          {[1, 2].map((i) => (
-            <div key={i} className="h-20 bg-gray-200 rounded-[18px] animate-pulse" />
-          ))}
-        </div>
-      ) : apartments.length === 0 ? (
-        <EmptyProjects />
-      ) : (
-        <div className="flex flex-col gap-3">
-          {apartments.map((apt) => (
-            <ProjectCard key={apt.id} apt={apt} />
-          ))}
-        </div>
-      )}
     </div>
   );
 }

@@ -66,6 +66,8 @@ const ProjectsPage = lazy(() => import("@/pages/projects/ProjectsPage"));
 const DokonPage = lazy(() => import("@/pages/dokon/DokonPage"));
 const ProfilePage = lazy(() => import("@/pages/profile/ProfilePage"));
 const LoginPage = lazy(() => import("@/pages/auth/LoginPage"));
+const LidarPage = lazy(() => import("@/pages/scan/LidarPage"));
+const Photo360Page = lazy(() => import("@/pages/scan/Photo360Page"));
 
 // ---------- Routes ----------
 
@@ -99,6 +101,14 @@ const routes: RouteObject[] = [
   },
 
   // ── Full-screen flows (no bottom nav) ──
+  {
+    path: "/scan/lidar",
+    element: withSuspense(<LidarPage />),
+  },
+  {
+    path: "/scan/360",
+    element: withSuspense(<Photo360Page />),
+  },
   {
     path: "/wizard",
     element: withSuspense(<RequireAuth><WizardPage /></RequireAuth>),

@@ -13,6 +13,7 @@ import { useOutletContext } from "react-router-dom";
 import { useRoomStore, resolveWallCovering } from "@/store/roomStore";
 import type { PlacedFurniture, UserFurnitureEntry, PlacedLight, PlacedElectrical } from "@/store/roomStore";
 import { DesignPanel } from "@/components/studio/DesignPanel";
+import { AddObjectSheet } from "@/components/studio/AddObjectSheet";
 import type { RoomGeometry, DesignState, WallCovering, WallElement } from "@/store/roomStore";
 import { createOboyTexture } from "@/lib/oboyPatterns";
 import type { OboyPatternId } from "@/lib/oboyPatterns";
@@ -1480,7 +1481,17 @@ export default function ThreeDPage() {
   const [dpr, setDpr] = useState<number | [number, number]>([1, 2]);
   const [showContactShadows, setShowContactShadows] = useState(true);
   const [dragEnabled, setDragEnabled] = useState(false);
+  const [showAddSheet, setShowAddSheet] = useState(false);
   const controlsRef = useRef<OrbitControlsImpl | null>(null);
+
+  const renoStages = [
+    { label: "Suvoq",        status: "done"    as const },
+    { label: "Shpaklovka",   status: "done"    as const },
+    { label: "Bo'yoq/Oboi",  status: "current" as const },
+    { label: "Pol",          status: "pending" as const },
+    { label: "Montaj",       status: "pending" as const },
+    { label: "Mebel",        status: "pending" as const },
+  ];
 
   const topView = preset === "top";
   const cam = useMemo(
@@ -1552,7 +1563,75 @@ export default function ThreeDPage() {
         </div>
 
         {/* 3D Canvas — no key={preset}, camera animated via lerp */}
-        <div className="flex-1 min-h-0">
+        <div className="flex-1 min-h-0 relative">
+
+          {/* ── Renovation stages — left floating rail (screen 10) ── */}
+          <div className="absolute left-3 top-1/2 -translate-y-1/2 z-10 flex flex-col gap-1 select-none">
+            {renoStages.map((stage, i) => (
+              <div
+                key={i}
+                className={`flex items-center gap-2 px-2.5 py-1.5 rounded-xl text-[11px] font-semibold transition-colors ${
+                  stage.status === "done"
+                    ? "bg-success/90 text-white"
+                    : stage.status === "current"
+                    ? "bg-brand/90 text-white"
+                    : "bg-white/70 text-muted"
+                }`}
+                style={{ backdropFilter: "blur(8px)" }}
+              >
+                {stage.status === "done" && (
+                  <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M1.5 5.5l3 3 5-5"/>
+                  </svg>
+                )}
+                {stage.status === "current" && (
+                  <span className="w-2 h-2 rounded-full bg-white/90 animate-pulse inline-block" />
+                )}
+                {stage.status === "pending" && (
+                  <span className="w-2 h-2 rounded-full bg-gray-400 inline-block" />
+                )}
+                {stage.label}
+              </div>
+            ))}
+          </div>
+
+          {/* ── Quick-add — right floating buttons (screen 10) ── */}
+          <div className="absolute right-3 top-1/2 -translate-y-1/2 z-10 flex flex-col gap-2 select-none">
+            {[
+              { label: "Oboi", path: "M3 3h18v18H3zM3 9h18M9 3v18" },
+              { label: "Chiroq", path: "M12 2a4 4 0 014 4c0 2.2-1.4 4-3 5v1H9v-1C7.4 10 6 8.2 6 6a4 4 0 014-4zm0 14v2m-2 0h4" },
+              { label: "Mebel", path: "M2 7h20v10H2zM6 7V5m12 2V5" },
+              { label: "Pol", path: "M2 18h20M2 14h20M6 10l4-4 4 4 4-4" },
+            ].map((btn) => (
+              <button
+                key={btn.label}
+                onClick={() => setShowAddSheet(true)}
+                className="w-12 h-12 rounded-2xl flex flex-col items-center justify-center gap-0.5 active:scale-90 transition-transform"
+                style={{ background: "rgba(255,255,255,0.82)", backdropFilter: "blur(10px)", boxShadow: "0 4px 16px rgba(17,24,39,.14)" }}
+                title={btn.label}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#374151" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+                  <path d={btn.path}/>
+                </svg>
+                <span className="text-[9px] font-bold text-gray-600">{btn.label}</span>
+              </button>
+            ))}
+          </div>
+
+          {/* ── Bottom "Buyum qo'shish" button (screen 10) ── */}
+          <div className="absolute bottom-5 left-1/2 -translate-x-1/2 z-10 pointer-events-none">
+            <button
+              onClick={() => setShowAddSheet(true)}
+              className="pointer-events-auto flex items-center gap-2 px-6 py-3 text-white rounded-[20px] font-bold text-[15px] active:scale-[0.97] transition-transform"
+              style={{ background: "linear-gradient(135deg,#F97316 0%,#EA580C 100%)", boxShadow: "0 12px 28px -8px rgba(249,115,22,.65)" }}
+            >
+              <svg width="17" height="17" viewBox="0 0 17 17" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" aria-hidden="true">
+                <path d="M8.5 2.5v12M2.5 8.5h12"/>
+              </svg>
+              Buyum qo'shish
+            </button>
+          </div>
+
         <Canvas
           shadows="soft"
           camera={{ position: initCam.position, fov: 55, near: 0.05, far: 80 }}
@@ -1621,6 +1700,9 @@ export default function ThreeDPage() {
 
       {/* Right: design panel */}
       <DesignPanel room={room} />
+
+      {/* Screen 11: Add object sheet */}
+      {showAddSheet && <AddObjectSheet onClose={() => setShowAddSheet(false)} />}
     </div>
   );
 }
