@@ -1,8 +1,8 @@
 import * as React from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { nanoid } from "nanoid";
-import { updateRoom } from "@/lib/api";
-import type { Room } from "@/lib/api";
+import { updateRoom, getMaterials } from "@/lib/api";
+import type { Room, Material } from "@/lib/api";
 import { uz } from "@/locale/uz";
 import { useRoomStore, resolveWallColor } from "@/store/roomStore";
 import type { WallCovering } from "@/store/roomStore";
@@ -53,6 +53,13 @@ export function DesignPanel({ room }: { room: Room }) {
   const [selectedPattern, setSelectedPattern] = React.useState<OboyPatternId>("damask");
   const [baseColor, setBaseColor] = React.useState("#F5F0E8");
   const [accentColor, setAccentColor] = React.useState("#8B6F47");
+  const [selectedProductId, setSelectedProductId] = React.useState<string | null>(null);
+
+  const { data: oboyProducts = [] } = useQuery({
+    queryKey: ["materials", "oboy"],
+    queryFn: () => getMaterials({ category: "oboy", per_page: 20 }),
+    staleTime: 10 * 60 * 1000,
+  });
 
   // Sync local mode/pattern state when the selected wall changes
   React.useEffect(() => {
@@ -68,6 +75,7 @@ export function DesignPanel({ room }: { room: Room }) {
       setBaseColor(c.baseColor);
       setAccentColor(c.accentColor);
     }
+    setSelectedProductId(null);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [targetWall]);
 
@@ -204,45 +212,94 @@ export function DesignPanel({ room }: { room: Room }) {
 
         {/* Wallpaper patterns */}
         {coveringMode === "oboy" && (
-          <section>
-            <h3 className="text-sm font-semibold text-gray-900 mb-3">Naqsh</h3>
-            <div className="grid grid-cols-3 gap-2 mb-4">
-              {OBOY_PATTERNS.map((p) => (
-                <button
-                  key={p.id}
-                  onClick={() => handleSetOboy({ patternId: p.id })}
-                  className="flex flex-col items-center gap-1"
-                  title={p.label}
-                >
-                  <svg
-                    width="60"
-                    height="60"
-                    className="rounded-md overflow-hidden"
-                    style={{
-                      border:
-                        selectedPattern === p.id
-                          ? "2px solid #D85A30"
-                          : "2px solid #E5E7EB",
-                    }}
+          <section className="space-y-4">
+            {/* Pattern grid */}
+            <div>
+              <h3 className="text-sm font-semibold text-gray-900 mb-2">Naqsh</h3>
+              <div className="grid grid-cols-3 gap-2">
+                {OBOY_PATTERNS.map((p) => (
+                  <button
+                    key={p.id}
+                    onClick={() => handleSetOboy({ patternId: p.id })}
+                    className="flex flex-col items-center gap-1"
+                    title={p.label}
                   >
-                    <defs
-                      dangerouslySetInnerHTML={{
-                        __html: getOboySvgPattern(p.id, baseColor, accentColor, `thumb-${p.id}`),
+                    <svg
+                      width="60"
+                      height="60"
+                      className="rounded-md overflow-hidden"
+                      style={{
+                        border:
+                          selectedPattern === p.id
+                            ? "2px solid #D85A30"
+                            : "2px solid #E5E7EB",
                       }}
-                    />
-                    <rect width="60" height="60" fill={`url(#thumb-${p.id})`} />
-                  </svg>
-                  <span className="text-xs text-gray-600">{p.label}</span>
-                </button>
-              ))}
+                    >
+                      <defs
+                        dangerouslySetInnerHTML={{
+                          __html: getOboySvgPattern(p.id, baseColor, accentColor, `thumb-${p.id}`),
+                        }}
+                      />
+                      <rect width="60" height="60" fill={`url(#thumb-${p.id})`} />
+                    </svg>
+                    <span className="text-xs text-gray-600">{p.label}</span>
+                  </button>
+                ))}
+              </div>
             </div>
-            <div className="space-y-3">
+
+            {/* Shop products */}
+            {oboyProducts.length > 0 && (
+              <div>
+                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+                  Do'kondan tanlang
+                </h3>
+                <div
+                  className="flex gap-2 overflow-x-auto pb-1"
+                  style={{ scrollbarWidth: "none" }}
+                >
+                  {oboyProducts.map((product: Material) => {
+                    const color = product.color_hex ?? "#E5E7EB";
+                    const isActive = selectedProductId === product.id;
+                    return (
+                      <button
+                        key={product.id}
+                        title={`${product.name_uz} — ${product.price_uzs.toLocaleString("uz-UZ")} so'm/${product.unit}`}
+                        onClick={() => {
+                          setSelectedProductId(product.id);
+                          handleSetOboy({ baseColor: color });
+                        }}
+                        className="flex-shrink-0 flex flex-col items-center gap-1 w-14"
+                      >
+                        <div
+                          className="w-12 h-12 rounded-lg border-2 transition-all"
+                          style={{
+                            backgroundColor: color,
+                            borderColor: isActive ? "#D85A30" : "#E5E7EB",
+                            boxShadow: isActive ? "0 0 0 2px #D85A30" : undefined,
+                          }}
+                        />
+                        <span className="text-[10px] text-gray-500 text-center line-clamp-2 leading-tight">
+                          {product.name_uz.split(" ").slice(0, 2).join(" ")}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Color fine-tuning */}
+            <div className="space-y-2.5">
               <div>
                 <label className="text-xs font-medium text-gray-700 block mb-1">Asosiy rang</label>
                 <input
                   type="color"
                   value={baseColor}
-                  onChange={(e) => handleSetOboy({ baseColor: e.target.value })}
+                  onChange={(e) => {
+                    setSelectedProductId(null);
+                    handleSetOboy({ baseColor: e.target.value });
+                  }}
                   className="w-full h-8 rounded border border-gray-200 cursor-pointer"
                 />
               </div>

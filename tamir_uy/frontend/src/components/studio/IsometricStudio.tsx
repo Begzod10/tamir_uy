@@ -80,7 +80,7 @@ function useRunningTotal(
       const material = materialMap.get(materialId);
       if (!material) continue;
       const area = areas[surfaceId] ?? 0;
-      total += area * material.price_per_unit;
+      total += area * material.price_uzs;
     }
     return total;
   }, [surfaces, materialMap, room]);
@@ -107,8 +107,8 @@ function MaterialGrid({
     <div className="grid grid-cols-3 gap-2">
       {materials.map((m) => {
         const isSelected = m.id === selected;
-        const hasColor = m.image_url?.startsWith("#") || m.name.includes("#");
-        const color = m.image_url?.startsWith("#") ? m.image_url : "#CCCCCC";
+        const hasColor = m.color_hex?.startsWith("#") || false;
+        const color = m.color_hex?.startsWith("#") ? m.color_hex : "#CCCCCC";
 
         return (
           <button
@@ -127,15 +127,15 @@ function MaterialGrid({
                 backgroundColor: hasColor ? color : undefined,
                 backgroundImage: hasColor
                   ? undefined
-                  : `url(${m.image_url ?? ""})`,
+                  : `url(${m.color_hex ?? ""})`,
                 backgroundSize: "cover",
               }}
             />
             <span className="text-xs font-medium text-gray-800 text-center leading-tight">
-              {m.name}
+              {m.name_uz}
             </span>
             <span className="text-xs text-brand font-semibold">
-              {formatSoum(m.price_per_unit)}/{m.unit}
+              {formatSoum(m.price_uzs)}/{m.unit}
             </span>
           </button>
         );
@@ -244,7 +244,7 @@ function CostChip({
   area: number;
   onDismiss: () => void;
 }) {
-  const cost = area * material.price_per_unit;
+  const cost = area * material.price_uzs;
 
   return (
     <div className="absolute bottom-20 left-1/2 -translate-x-1/2 z-20 animate-fade-slide">
@@ -317,7 +317,7 @@ function IsometricSVG({
     const mat = materialMap.get(matId);
     if (!mat) return defaultColor;
     // Try to extract color from image_url if it's a hex
-    if (mat.image_url?.startsWith("#")) return mat.image_url;
+    if (mat.color_hex?.startsWith("#")) return mat.color_hex;
     return defaultColor;
   }
 

@@ -44,7 +44,8 @@ class TokenResponse(BaseModel):
 
 class UserOut(BaseModel):
     id: UUID
-    phone: str
+    phone: str | None
+    username: str | None
     name: str | None
     created_at: datetime
 
@@ -52,6 +53,17 @@ class UserOut(BaseModel):
 
 
 class LoginResponse(BaseModel):
-    """Returned by /otp/verify; the JWT is delivered via HttpOnly cookie, not here."""
+    """Returned by auth endpoints; the JWT is delivered via HttpOnly cookie, not here."""
 
     user: UserOut
+
+
+class RegisterRequest(BaseModel):
+    username: str
+    password: str
+    name: str | None = None
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str

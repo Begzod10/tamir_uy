@@ -56,13 +56,25 @@ async function apiClient<T>(
 
 export interface AuthUser {
   id: string;
-  phone: string;
+  phone: string | null;
+  username: string | null;
   name: string | null;
   created_at: string;
 }
 
 export interface LoginResponse {
   user: AuthUser;
+}
+
+export interface RegisterData {
+  username: string;
+  password: string;
+  name?: string;
+}
+
+export interface LoginData {
+  username: string;
+  password: string;
 }
 
 // ---------- Auth ----------
@@ -87,6 +99,20 @@ export async function getMe(): Promise<AuthUser> {
 
 export async function logoutApi(): Promise<void> {
   await apiClient<void>("/auth/logout", { method: "POST" });
+}
+
+export async function registerUser(data: RegisterData): Promise<LoginResponse> {
+  return apiClient<LoginResponse>("/auth/register", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function loginWithPassword(data: LoginData): Promise<LoginResponse> {
+  return apiClient<LoginResponse>("/auth/login", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
 }
 
 // ---------- Apartment types ----------
@@ -227,19 +253,28 @@ export async function updateRoom(
 
 export interface Material {
   id: string;
-  name: string;
+  store_id: string;
   category: string;
+  name_uz: string;
   unit: string;
-  price_per_unit: number;
-  store_id: string | null;
-  image_url: string | null;
+  price_uzs: number;
+  color_hex: string | null;
+  texture_key: string | null;
+  pbr_roughness: number;
+}
+
+export interface MaterialsPage {
+  items: Material[];
+  total: number;
+  page: number;
+  per_page: number;
 }
 
 export interface MaterialParams {
   category?: string;
-  search?: string;
+  store?: string;
   page?: number;
-  page_size?: number;
+  per_page?: number;
 }
 
 // ---------- Materials ----------
@@ -252,7 +287,8 @@ export async function getMaterials(params: MaterialParams = {}): Promise<Materia
         .map(([k, v]) => [k, String(v)])
     )
   ).toString();
-  return apiClient<Material[]>(`/materials${query ? `?${query}` : ""}`);
+  const page = await apiClient<MaterialsPage>(`/materials${query ? `?${query}` : ""}`);
+  return page.items;
 }
 
 // ---------- Furniture types ----------
@@ -347,24 +383,26 @@ export async function getUstalar(params: UstalarParams = {}): Promise<Usta[]> {
 
 // ---------- Estimate types ----------
 
-export interface EstimateLineItem {
-  category: string;
-  name: string;
-  unit: string;
+export interface EstimateLine {
+  label: string;
+  formula: string;
   quantity: number;
+  unit: string;
   unit_price: number;
-  total: number;
+  total_uzs: number;
+  is_approximate: boolean;
+  store_id: string | null;
 }
 
 export interface EstimateResponse {
+  id: string;
   room_id: string;
-  items: EstimateLineItem[];
-  material_total: number;
-  labor_total: number;
-  waste_total: number;
-  grand_total: number;
-  currency: string;
-  generated_at: string;
+  lines: EstimateLine[];
+  total_uzs: number;
+  total_min: number;
+  total_max: number;
+  created_at: string;
+  has_electrical: boolean;
 }
 
 // ---------- Estimate ----------

@@ -20,6 +20,12 @@ MaterialCategory = Enum(
     "laminat",
     "parket",
     "plitka",
+    "eshik",
+    "deraza",
+    "gips",
+    "sement",
+    "santexnika",
+    "elektr_mat",
     name="material_category",
 )
 
@@ -29,6 +35,8 @@ MaterialUnit = Enum(
     "m2",
     "qop",
     "dona",
+    "m",
+    "komplekt",
     name="material_unit",
 )
 

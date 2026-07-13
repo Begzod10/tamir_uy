@@ -84,25 +84,25 @@ export default function SmetaPage() {
 
         {/* Estimate display */}
         {estimate && (
-          <div className="space-y-6 animate-fade-slide">
+          <div className="space-y-6">
             {/* Summary cards */}
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
               <div className="bg-surface rounded-card p-4 shadow-sm">
-                <p className="text-xs text-muted mb-1">{uz.smeta.material_xarajat}</p>
-                <p className="text-lg font-bold text-gray-900 animate-count-up">
-                  {formatUZS(estimate.material_total)}
+                <p className="text-xs text-muted mb-1">Minimal narx</p>
+                <p className="text-lg font-bold text-gray-900">
+                  {formatUZS(estimate.total_min)}
                 </p>
               </div>
               <div className="bg-surface rounded-card p-4 shadow-sm">
-                <p className="text-xs text-muted mb-1">{uz.smeta.mehnat}</p>
-                <p className="text-lg font-bold text-gray-900 animate-count-up">
-                  {formatUZS(estimate.labor_total)}
+                <p className="text-xs text-muted mb-1">Maksimal narx</p>
+                <p className="text-lg font-bold text-gray-900">
+                  {formatUZS(estimate.total_max)}
                 </p>
               </div>
               <div className="bg-surface rounded-card p-4 shadow-sm col-span-2 sm:col-span-1">
-                <p className="text-xs text-muted mb-1">{uz.smeta.chiqindi}</p>
-                <p className="text-lg font-bold text-gray-900 animate-count-up">
-                  {formatUZS(estimate.waste_total)}
+                <p className="text-xs text-muted mb-1">Elektr ishlari</p>
+                <p className="text-lg font-bold text-gray-900">
+                  {estimate.has_electrical ? "Ha" : "Yo'q"}
                 </p>
               </div>
             </div>
@@ -111,7 +111,7 @@ export default function SmetaPage() {
             <div className="bg-brand/10 border-2 border-brand rounded-card p-5 flex items-center justify-between">
               <p className="text-lg font-semibold text-brand">{uz.smeta.jami}</p>
               <p className="text-2xl font-extrabold text-brand">
-                {formatUZS(estimate.grand_total)}
+                {formatUZS(estimate.total_uzs)}
               </p>
             </div>
 
@@ -122,7 +122,10 @@ export default function SmetaPage() {
                   <thead>
                     <tr className="bg-gray-50 border-b border-gray-200">
                       <th className="text-left px-4 py-3 text-xs font-semibold text-muted uppercase tracking-wide">
-                        {uz.smeta.material}
+                        Ish / material
+                      </th>
+                      <th className="text-left px-4 py-3 text-xs font-semibold text-muted uppercase tracking-wide">
+                        Formula
                       </th>
                       <th className="text-right px-4 py-3 text-xs font-semibold text-muted uppercase tracking-wide">
                         {uz.smeta.miqdori}
@@ -139,26 +142,29 @@ export default function SmetaPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {estimate.items.map((item, idx) => (
+                    {estimate.lines.map((line, idx) => (
                       <tr
                         key={idx}
                         className="border-b border-gray-100 hover:bg-gray-50 transition-colors"
                       >
                         <td className="px-4 py-3 font-medium text-gray-900">
-                          {item.name}
-                          <span className="ml-2 text-xs text-muted">
-                            [{item.category}]
-                          </span>
+                          {line.label}
+                          {line.is_approximate && (
+                            <span className="ml-2 text-xs text-orange-500">~taxminiy</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-xs text-muted max-w-[200px] truncate">
+                          {line.formula}
                         </td>
                         <td className="px-4 py-3 text-right text-gray-700">
-                          {item.quantity.toFixed(2)}
+                          {line.quantity.toFixed(2)}
                         </td>
-                        <td className="px-4 py-3 text-muted">{item.unit}</td>
+                        <td className="px-4 py-3 text-muted">{line.unit}</td>
                         <td className="px-4 py-3 text-right text-gray-700">
-                          {formatUZS(item.unit_price)}
+                          {formatUZS(line.unit_price)}
                         </td>
                         <td className="px-4 py-3 text-right font-medium text-gray-900">
-                          {formatUZS(item.total)}
+                          {formatUZS(line.total_uzs)}
                         </td>
                       </tr>
                     ))}
@@ -184,7 +190,7 @@ export default function SmetaPage() {
                 {uz.smeta.qayta_hisoblash}
               </button>
               <Link
-                to={`/ustalar`}
+                to="/ustalar"
                 className="flex items-center gap-2 bg-success text-white px-5 py-2.5 rounded-card text-sm font-semibold hover:bg-success/90 transition-colors"
               >
                 {uz.ustalar.usta_chaqirish}
@@ -193,7 +199,7 @@ export default function SmetaPage() {
 
             <p className="text-xs text-muted">
               Hisoblab chiqildi:{" "}
-              {new Date(estimate.generated_at).toLocaleString("uz-UZ")}
+              {new Date(estimate.created_at).toLocaleString("uz-UZ")}
             </p>
           </div>
         )}

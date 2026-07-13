@@ -7,6 +7,8 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import bcrypt as _bcrypt
+
 from app.api.v1.deps import CurrentUser
 from app.config import settings
 from app.core.cache import get_redis
@@ -14,7 +16,14 @@ from app.core.security import create_access_token
 from app.core.sms import generate_otp, send_otp, store_otp, verify_otp
 from app.database import get_db
 from app.models.user import User
-from app.schemas.auth import LoginResponse, OTPRequest, OTPVerify, UserOut
+from app.schemas.auth import LoginRequest, LoginResponse, OTPRequest, OTPVerify, RegisterRequest, UserOut
+
+def _hash_password(password: str) -> str:
+    return _bcrypt.hashpw(password.encode(), _bcrypt.gensalt()).decode()
+
+
+def _verify_password(password: str, password_hash: str) -> bool:
+    return _bcrypt.checkpw(password.encode(), password_hash.encode())
 
 logger = structlog.get_logger(__name__)
 
@@ -145,5 +154,61 @@ async def get_me(current_user: CurrentUser) -> UserOut:
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Clear the auth cookie",
 )
-async def logout(response: Response) -> None:
+async def logout(response: Response):  # noqa: ANN201 — 204 No Content, no body
     response.delete_cookie(key="token", path="/", samesite="lax")
+
+
+@router.post(
+    "/register",
+    response_model=LoginResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Register with username and password",
+)
+async def register(
+    body: RegisterRequest,
+    response: Response,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> LoginResponse:
+    existing = await db.execute(select(User).where(User.username == body.username))
+    if existing.scalar_one_or_none() is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Bu username allaqachon band.",
+        )
+
+    user = User(
+        username=body.username,
+        password_hash=_hash_password(body.password),
+        name=body.name,
+    )
+    db.add(user)
+    await db.flush()
+
+    logger.info("user_registered", user_id=str(user.id), username=body.username)
+    _set_auth_cookie(response, create_access_token(str(user.id)))
+    return LoginResponse(user=UserOut.model_validate(user))
+
+
+@router.post(
+    "/login",
+    response_model=LoginResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Login with username and password",
+)
+async def login_with_password(
+    body: LoginRequest,
+    response: Response,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> LoginResponse:
+    result = await db.execute(select(User).where(User.username == body.username))
+    user = result.scalar_one_or_none()
+
+    if user is None or user.password_hash is None or not _verify_password(body.password, user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Username yoki parol noto'g'ri.",
+        )
+
+    logger.info("user_logged_in", user_id=str(user.id), username=body.username)
+    _set_auth_cookie(response, create_access_token(str(user.id)))
+    return LoginResponse(user=UserOut.model_validate(user))

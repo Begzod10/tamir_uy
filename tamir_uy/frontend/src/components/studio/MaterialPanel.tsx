@@ -7,7 +7,7 @@ import type { Material } from "@/lib/api";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type PanelTab = "boyoq" | "oboy" | "pol" | "mebel";
+type PanelTab = "boyoq" | "pol" | "mebel";
 
 interface MaterialPanelProps {
   activeSurface: string | null;
@@ -20,7 +20,6 @@ interface MaterialPanelProps {
 
 const TABS: { key: PanelTab; label: string; category: string }[] = [
   { key: "boyoq", label: "Bo'yoq", category: "boyoq" },
-  { key: "oboy", label: "Oboy", category: "oboy" },
   { key: "pol", label: "Pol", category: "laminat" },
   { key: "mebel", label: "Mebel", category: "mebel" },
 ];
@@ -36,7 +35,7 @@ function MaterialItem({
   isSelected: boolean;
   onSelect: () => void;
 }) {
-  const color = material.image_url?.startsWith("#") ? material.image_url : "#CCCCCC";
+  const color = material.color_hex ?? "#CCCCCC";
 
   return (
     <button
@@ -51,20 +50,14 @@ function MaterialItem({
       {/* Color swatch */}
       <div
         className="w-8 h-8 rounded-card border border-gray-200 flex-shrink-0"
-        style={{
-          backgroundColor: color,
-          backgroundImage: !material.image_url?.startsWith("#") && material.image_url
-            ? `url(${material.image_url})`
-            : undefined,
-          backgroundSize: "cover",
-        }}
+        style={{ backgroundColor: color }}
       />
 
       {/* Name + price */}
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-gray-900 truncate">{material.name}</p>
+        <p className="text-sm font-medium text-gray-900 truncate">{material.name_uz}</p>
         <p className="text-xs text-muted">
-          {Math.round(material.price_per_unit / 100).toLocaleString("uz-UZ")} soʻm/{material.unit}
+          {material.price_uzs.toLocaleString("uz-UZ")} soʻm/{material.unit}
         </p>
       </div>
 

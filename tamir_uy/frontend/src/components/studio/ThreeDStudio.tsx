@@ -1,6 +1,8 @@
 import { Suspense, useMemo, useState, useRef } from "react";
 import { Canvas } from "@react-three/fiber";
-import { OrbitControls, Environment, Sky } from "@react-three/drei";
+import { OrbitControls, Environment, Sky, ContactShadows, SoftShadows } from "@react-three/drei";
+import { EffectComposer, SSAO, Bloom, Vignette } from "@react-three/postprocessing";
+import { BlendFunction } from "postprocessing";
 import { useRoomStore } from "@/store/roomStore";
 import type { AppliedSurfaces, RoomGeometry } from "@/store/roomStore";
 import { updateRoom } from "@/lib/api";
@@ -114,7 +116,8 @@ function WallSegment({
       <meshStandardMaterial
         color={isSelected ? "#D85A30" : color}
         roughness={roughness}
-        envMapIntensity={0.5}
+        metalness={0.0}
+        envMapIntensity={1.2}
       />
     </mesh>
   );
@@ -300,19 +303,21 @@ function RoomGeometry({
         <planeGeometry args={[W, D]} />
         <meshStandardMaterial
           color={wallColor("floor", "#C4A27A")}
-          roughness={0.65}
-          envMapIntensity={0.5}
+          roughness={0.5}
+          metalness={0.04}
+          envMapIntensity={1.5}
         />
       </mesh>
 
-      {/* Ceiling (semi-transparent) */}
+      {/* Ceiling — slightly visible, not glass */}
       <mesh rotation={[Math.PI / 2, 0, 0]} position={[0, H, 0]}>
         <planeGeometry args={[W, D]} />
         <meshStandardMaterial
-          color="#FFFFFF"
+          color="#F8F6F2"
+          roughness={0.95}
           transparent
-          opacity={0.25}
-          side={THREE.DoubleSide}
+          opacity={0.55}
+          side={THREE.BackSide}
         />
       </mesh>
 
@@ -428,8 +433,15 @@ function Scene({
   const cfg = TIME_CONFIG[timeOfDay];
   const sunPos = azimuthInclinationToSunPos(cfg.sunAzimuth, cfg.sunInclination);
 
+  const W = room.width ?? 4;
+  const D = room.length ?? 4;
+  const shadowScale = Math.max(W, D) + 3;
+
   return (
     <>
+      {/* Soft shadow shader injection */}
+      <SoftShadows size={12} focus={0.5} samples={20} />
+
       {/* Sky */}
       {timeOfDay !== "kech" && (
         <Sky sunPosition={sunPos} turbidity={8} rayleigh={1.5} />
@@ -447,27 +459,47 @@ function Scene({
           shadow-mapSize={[2048, 2048]}
           shadow-camera-near={0.1}
           shadow-camera-far={30}
-          shadow-camera-left={-8}
-          shadow-camera-right={8}
-          shadow-camera-top={8}
-          shadow-camera-bottom={-8}
+          shadow-camera-left={-10}
+          shadow-camera-right={10}
+          shadow-camera-top={10}
+          shadow-camera-bottom={-10}
+          shadow-bias={-0.0001}
         />
       )}
+
+      {/* Hemisphere fill light for realistic indoor bounce */}
+      <hemisphereLight
+        color={timeOfDay === "kech" ? "#3040A0" : "#FAEBD7"}
+        groundColor={timeOfDay === "kech" ? "#101010" : "#8B7355"}
+        intensity={timeOfDay === "kech" ? 0.3 : 0.5}
+      />
 
       {/* Interior lamp (evening mode) */}
       {cfg.showInteriorLight && (
         <pointLight
           position={[0, (room.ceiling_height ?? 2.7) - 0.3, 0]}
-          intensity={2.0}
+          intensity={2.5}
           color="#FFE8C0"
-          distance={12}
+          distance={14}
           decay={2}
           castShadow
+          shadow-mapSize={[1024, 1024]}
         />
       )}
 
-      {/* Environment reflections */}
-      <Environment preset="apartment" />
+      {/* Environment map — IBL for realistic surface reflections */}
+      <Environment preset="apartment" background={false} />
+
+      {/* Contact shadows baked onto floor (faster than shadow maps, looks great) */}
+      <ContactShadows
+        position={[0, 0.002, 0]}
+        opacity={0.4}
+        scale={shadowScale}
+        blur={2.5}
+        far={4}
+        resolution={512}
+        color="#000000"
+      />
 
       {/* Room geometry */}
       <RoomGeometry
@@ -488,6 +520,26 @@ function Scene({
         maxDistance={20}
         target={[0, (room.ceiling_height ?? 2.7) / 3, 0]}
       />
+
+      {/* Post-processing effects */}
+      <EffectComposer multisampling={4}>
+        <SSAO
+          blendFunction={BlendFunction.MULTIPLY}
+          samples={30}
+          radius={0.08}
+          intensity={35}
+          luminanceInfluence={0.6}
+          rings={4}
+          color={new THREE.Color("black")}
+        />
+        <Bloom
+          intensity={0.18}
+          luminanceThreshold={0.85}
+          luminanceSmoothing={0.025}
+          mipmapBlur
+        />
+        <Vignette offset={0.18} darkness={0.35} />
+      </EffectComposer>
     </>
   );
 }
@@ -519,7 +571,7 @@ export default function ThreeDStudio({ room }: ThreeDStudioProps) {
     applySurface(selectedSurface, material.id);
 
     // Cache the color for rendering
-    const color = material.image_url?.startsWith("#") ? material.image_url : "#D0C8C0";
+    const color = material.color_hex ?? "#D0C8C0";
     setMaterialColorMap((prev) => new Map(prev).set(material.id, color));
 
     // Autosave
@@ -556,7 +608,12 @@ export default function ThreeDStudio({ room }: ThreeDStudioProps) {
             width: "100%",
             height: "100%",
           }}
-          gl={{ antialias: true }}
+          gl={{
+            antialias: true,
+            toneMapping: THREE.ACESFilmicToneMapping,
+            toneMappingExposure: 1.15,
+            outputColorSpace: THREE.SRGBColorSpace,
+          }}
         >
           <Suspense fallback={null}>
             <Scene

@@ -19,12 +19,19 @@ class User(Base):
         default=uuid.uuid4,
         index=True,
     )
-    phone: Mapped[str] = mapped_column(
+    phone: Mapped[str | None] = mapped_column(
         String(20),
         unique=True,
-        nullable=False,
+        nullable=True,
         index=True,
     )
+    username: Mapped[str | None] = mapped_column(
+        String(50),
+        unique=True,
+        nullable=True,
+        index=True,
+    )
+    password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
     name: Mapped[str | None] = mapped_column(String(100), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
