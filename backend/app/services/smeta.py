@@ -25,6 +25,7 @@ if TYPE_CHECKING:
 
 ROLL_WIDTH_M: float = 1.06        # wallpaper roll width
 ROLL_LENGTH_M: float = 10.05      # wallpaper roll length
+ROLL_AREA_M2: float = ROLL_WIDTH_M * ROLL_LENGTH_M  # 10.653 m² per roll
 PACK_M2: float = 2.13             # laminate pack coverage (from norm; overridable)
 PLINTH_PIECE_M: float = 2.5       # standard plinth strip length
 DOOR_WIDTH_DEFAULT_M: float = 0.9  # door width assumed when no geometry data
@@ -48,6 +49,16 @@ TILE_WASTE: float = 1.10
 LAMINAT_WASTE_DEFAULT: float = 1.07
 
 NON_WALL_SURFACE_KEYS: frozenset[str] = frozenset({"floor", "ceiling"})
+
+# Waste factors by wallpaper pattern type
+WASTE_FACTORS: dict[str, float] = {
+    "tekstura": 1.05,
+    "yolli": 1.10,
+    "damask": 1.15,
+    "geometrik": 1.15,
+    "gul": 1.15,
+    "bolalar": 1.15,
+}
 
 
 # ---------------------------------------------------------------------------
@@ -91,6 +102,15 @@ def _float(value: object, default: float = 0.0) -> float:
     return float(value)
 
 
+def _to_metres(v: float) -> float:
+    """Auto-convert mm → m when value looks like mm (> 100).
+
+    Phase 5 will remove this heuristic and require metres throughout.
+    For now, geometry from the frontend arrives in mm.
+    """
+    return v / 1000.0 if v > 100 else v
+
+
 def _make_line(
     *,
     label: str,
@@ -105,23 +125,15 @@ def _make_line(
     warning: str | None = None,
 ) -> ComputedLine:
     """Build a ComputedLine with integer tiyin arithmetic for the subtotal."""
-    qty_val = int(qty) if isinstance(qty, float) and qty == int(qty) else qty
-    # Money: operate in tiyin, convert back to UZS
-    price_tiyin: int = int(price_uzs) * 100
-    if isinstance(qty_val, int):
-        subtotal_tiyin: int = qty_val * price_tiyin
-    else:
-        # continuous qty (e.g. tile m²): use rounded tiyin-qty
-        qty_tiyin = round(float(qty_val) * 100)
-        subtotal_tiyin = qty_tiyin * int(price_uzs)  # qty_tiyin * UZS → tiyin-UZS
-        # convert: tiyin-UZS / 100 = UZS (we want UZS, so divide by 100)
-        # Actually: subtotal_uzs = float(qty) * price_uzs, rounded
-        subtotal_tiyin = round(float(qty_val) * price_tiyin)
+    qty_val: float = float(qty)
+    # All monetary arithmetic in tiyin (UZS × 100) to avoid float rounding
+    price_tiyin: int = round(float(price_uzs) * 100)
+    subtotal_tiyin: int = round(qty_val * price_tiyin)
     subtotal_uzs: int = subtotal_tiyin // 100
     return ComputedLine(
         label=label,
         formula=formula,
-        qty=float(qty_val),
+        qty=qty_val,
         unit=unit,
         unit_price_uzs=int(price_uzs),
         subtotal_uzs=subtotal_uzs,
@@ -172,6 +184,7 @@ def _paint_lines(
     room: "Room",
     material: "Material",
     norm: "Norm",
+    norms_map: "dict[str, Norm]",
 ) -> list[ComputedLine]:
     """Boyoq + grunt (primer) + shpatlyovka (putty)."""
     lines: list[ComputedLine] = []
@@ -196,33 +209,53 @@ def _paint_lines(
     ))
 
     # -- Primer (grunt) --
-    kg_primer = math.ceil(net_wall * PRIMER_RATE_KG_M2)
-    bags_primer = math.ceil(kg_primer / PRIMER_BAG_KG)
+    grunt_norm = norms_map.get("grunt")
+    grunt_params = grunt_norm.params if grunt_norm and grunt_norm.params else {}
+    primer_rate = float(grunt_params.get("rate_kg_m2", PRIMER_RATE_KG_M2))
+    primer_bag_kg = int(grunt_params.get("bag_kg", PRIMER_BAG_KG))
+    primer_price = int(grunt_params.get("bag_price_uzs", PRIMER_BAG_PRICE_UZS))
+    grunt_approximate = grunt_norm is None
+    grunt_warning = "Norma topilmadi, standart qiymat ishlatildi" if grunt_norm is None else None
+
+    kg_primer = math.ceil(net_wall * primer_rate)
+    bags_primer = math.ceil(kg_primer / primer_bag_kg)
     lines.append(_make_line(
-        label=f"Grunt (asosiy qatlam) {PRIMER_BAG_KG} kg qop",
+        label=f"Grunt (asosiy qatlam) {primer_bag_kg} kg qop",
         formula=(
-            f"{net_wall:.1f} m² × {PRIMER_RATE_KG_M2} kg/m² "
+            f"{net_wall:.1f} m² × {primer_rate} kg/m² "
             f"= {kg_primer} kg → {bags_primer} qop"
         ),
         qty=bags_primer,
         unit="qop",
-        price_uzs=PRIMER_BAG_PRICE_UZS,
+        price_uzs=primer_price,
         category="grunt",
+        is_approximate=grunt_approximate,
+        warning=grunt_warning,
     ))
 
     # -- Putty (shpatlyovka) --
-    kg_putty = net_wall * PUTTY_RATE_KG_M2
-    bags_putty = math.ceil(kg_putty / PUTTY_BAG_KG)
+    putty_norm = norms_map.get("shpatlyovka")
+    putty_params = putty_norm.params if putty_norm and putty_norm.params else {}
+    putty_rate = float(putty_params.get("rate_kg_m2", PUTTY_RATE_KG_M2))
+    putty_bag_kg = int(putty_params.get("bag_kg", PUTTY_BAG_KG))
+    putty_price = int(putty_params.get("bag_price_uzs", PUTTY_BAG_PRICE_UZS))
+    putty_approximate = putty_norm is None
+    putty_warning = "Norma topilmadi, standart qiymat ishlatildi" if putty_norm is None else None
+
+    kg_putty = net_wall * putty_rate
+    bags_putty = math.ceil(kg_putty / putty_bag_kg)
     lines.append(_make_line(
-        label=f"Shpatlyovka {PUTTY_BAG_KG} kg qop",
+        label=f"Shpatlyovka {putty_bag_kg} kg qop",
         formula=(
-            f"{net_wall:.1f} m² × {PUTTY_RATE_KG_M2} kg/m² "
+            f"{net_wall:.1f} m² × {putty_rate} kg/m² "
             f"= {kg_putty:.1f} kg → {bags_putty} qop"
         ),
         qty=bags_putty,
         unit="qop",
-        price_uzs=PUTTY_BAG_PRICE_UZS,
+        price_uzs=putty_price,
         category="shpatlyovka",
+        is_approximate=putty_approximate,
+        warning=putty_warning,
     ))
 
     return lines
@@ -230,40 +263,108 @@ def _paint_lines(
 
 def _wallpaper_lines(
     room: "Room",
-    material: "Material",
-    norm: "Norm",
+    wall_surfaces: dict[str, str],
+    materials_map: dict[str, "Material"],
+    norm: "Norm | None",
+    norms_map: "dict[str, Norm]",
 ) -> list[ComputedLine]:
-    """Oboy (wallpaper)."""
-    perimeter = _float(room.perimeter)
-    ceiling_h = _float(room.ceiling_h, 2.7)
+    """Per-wall oboy (wallpaper) lines.
 
-    strips_needed = math.ceil(perimeter / ROLL_WIDTH_M)
-    # pattern repeat is 0 for MVP
-    strips_per_roll = int(ROLL_LENGTH_M / ceiling_h)
-    rolls_needed = math.ceil(strips_needed / max(strips_per_roll, 1))
+    Reads wall geometry from room.geometry (lengths may be in mm; applies
+    _to_metres heuristic).  Reads which walls have oboy covering from
+    room.state['wallCoverings'].  Emits one ComputedLine per wall that has
+    an 'oboy' kind covering.
+    """
+    geometry: dict = room.geometry or {}
+    walls_data = geometry.get("walls", [])
+    walls_by_id: dict[str, dict] = {str(w.get("id", "")): w for w in walls_data}
 
-    formula = (
-        f"Perimetr {perimeter:.2f} m ÷ {ROLL_WIDTH_M} m = "
-        f"{strips_needed} chiziq; "
-        f"rulonda {strips_per_roll} chiziq ({ROLL_LENGTH_M} m ÷ {ceiling_h:.1f} m); "
-        f"= {rolls_needed} rulon"
-    )
-    return [_make_line(
-        label=f"Oboy: {material.name_uz}",
-        formula=formula,
-        qty=rolls_needed,
-        unit="rulon",
-        price_uzs=material.price_uzs,
-        category="oboy",
-        material_id=str(material.id),
-        store_name=_store_name(material),
-    )]
+    ceiling_h_raw = _float(room.ceiling_h, 2.7)
+    ceiling_h_m = _to_metres(ceiling_h_raw)
+
+    state: dict = room.state or {}
+    wall_coverings: dict = state.get("wallCoverings", {})
+
+    lines: list[ComputedLine] = []
+
+    for wall_key in ["A", "B", "C", "D"]:
+        covering = wall_coverings.get(wall_key) or wall_coverings.get("ALL")
+        if not covering or not isinstance(covering, dict):
+            continue
+        if covering.get("kind") != "oboy":
+            continue
+
+        wall = walls_by_id.get(wall_key, {})
+        raw_length = float(wall.get("length", 0) or 0)
+        wall_length_m = _to_metres(raw_length)
+        if wall_length_m <= 0:
+            continue
+
+        gross_area = wall_length_m * ceiling_h_m
+
+        elements = wall.get("elements", []) or []
+        openings_area = sum(
+            _to_metres(float(el.get("width", 0) or 0))
+            * _to_metres(float(el.get("height", 0) or 0))
+            for el in elements
+        )
+
+        net_area = max(0.0, gross_area - openings_area)
+
+        pattern_id: str = covering.get("patternId", "") or ""
+        # Waste factor: prefer DB norm (oboy_{pattern_id}), fallback to WASTE_FACTORS dict
+        pattern_norm = norms_map.get(f"oboy_{pattern_id}") if pattern_id else None
+        if pattern_norm is not None:
+            waste_factor = _float(pattern_norm.waste_factor, 1.10)
+        else:
+            waste_factor = WASTE_FACTORS.get(pattern_id, 1.10)
+
+        # Roll dimensions: prefer DB norm params for "oboy", fallback to constants
+        oboy_norm = norm  # passed as norm parameter
+        oboy_params = oboy_norm.params if oboy_norm and oboy_norm.params else {}
+        roll_width = float(oboy_params.get("roll_width_m", ROLL_WIDTH_M))
+        roll_length = float(oboy_params.get("roll_length_m", ROLL_LENGTH_M))
+        roll_area = roll_width * roll_length
+
+        strips_per_roll = int(roll_length / ceiling_h_m) if ceiling_h_m > 0 else 1  # noqa: F841
+        rolls_per_wall = math.ceil(net_area * waste_factor / roll_area) if roll_area > 0 else 0
+
+        mat_id = wall_surfaces.get(wall_key) or wall_surfaces.get("ALL")
+        material = materials_map.get(mat_id) if mat_id else None
+
+        label = (
+            f"Oboy devor {wall_key}: {material.name_uz}"
+            if material
+            else f"Oboy devor {wall_key}"
+        )
+        formula = (
+            f"Devor {wall_key}: {wall_length_m:.2f} m × {ceiling_h_m:.2f} m "
+            f"− teshiklar {openings_area:.2f} m² = {net_area:.2f} m²; "
+            f"× {waste_factor:.2f} (isrof) ÷ {roll_area:.3f} m²/rulon "
+            f"= {rolls_per_wall} rulon"
+        )
+
+        price_uzs = int(material.price_uzs) if material else 0
+
+        lines.append(_make_line(
+            label=label,
+            formula=formula,
+            qty=rolls_per_wall,
+            unit="rulon",
+            price_uzs=price_uzs,
+            category="oboy",
+            material_id=str(material.id) if material else None,
+            store_name=_store_name(material) if material else None,
+        ))
+
+    return lines
 
 
 def _laminate_lines(
     room: "Room",
     material: "Material",
     norm: "Norm | None",
+    norms_map: "dict[str, Norm]",
 ) -> list[ComputedLine]:
     """Laminat qoplamasi + plinth."""
     lines: list[ComputedLine] = []
@@ -289,21 +390,30 @@ def _laminate_lines(
         store_name=_store_name(material),
     ))
 
-    # Plinth
+    # Plinth — read dimensions and price from DB norm when available
+    plintus_norm = norms_map.get("plintus")
+    plintus_params = plintus_norm.params if plintus_norm and plintus_norm.params else {}
+    plinth_piece_m = float(plintus_params.get("piece_m", PLINTH_PIECE_M))
+    plinth_price = int(plintus_params.get("piece_price_uzs", PLINTH_PIECE_PRICE_UZS))
+    plinth_approximate = plintus_norm is None
+    plinth_warning = "Norma topilmadi, standart qiymat ishlatildi" if plintus_norm is None else None
+
     door_m = _door_widths_m(room)
     perimeter = _float(room.perimeter)
     plinth_m = max(0.0, perimeter - door_m)
-    pieces = math.ceil(plinth_m / PLINTH_PIECE_M)
+    pieces = math.ceil(plinth_m / plinth_piece_m)
     lines.append(_make_line(
-        label=f"Plintus ({PLINTH_PIECE_M:.1f} m dona)",
+        label=f"Plintus ({plinth_piece_m:.1f} m dona)",
         formula=(
             f"Perimetr {perimeter:.2f} m − eshiklar {door_m:.2f} m "
             f"= {plinth_m:.2f} m → {pieces} dona"
         ),
         qty=pieces,
         unit="dona",
-        price_uzs=PLINTH_PIECE_PRICE_UZS,
+        price_uzs=plinth_price,
         category="plintus",
+        is_approximate=plinth_approximate,
+        warning=plinth_warning,
     ))
 
     return lines
@@ -340,24 +450,61 @@ def _tile_lines(
     )]
 
 
-def _electrical_line(room: "Room") -> ComputedLine:
-    """Approximate electrical cable estimate (amber warning)."""
-    cable_m = math.ceil(ELEC_POINTS_DEFAULT * ELEC_AVG_RUN_M * ELEC_SLACK)
+def _electrical_line(
+    room: "Room",
+    norms_map: "dict[str, Norm]",
+) -> ComputedLine:
+    """Electrical cable estimate.
+
+    Uses actual placed electrical point counts from room.state when available
+    (keys: 'electricals' and 'lights', saved by StudioPage).  Falls back to
+    ELEC_POINTS_DEFAULT and marks the line as approximate when no count is found.
+    """
+    elec_norm = norms_map.get("elektr_kabel")
+    elec_params = elec_norm.params if elec_norm and elec_norm.params else {}
+    avg_run_m = float(elec_params.get("avg_run_m", ELEC_AVG_RUN_M))
+    slack = float(elec_params.get("slack", ELEC_SLACK))
+    price_per_m = int(elec_params.get("price_per_m_uzs", ELEC_CABLE_PRICE_UZS))
+
+    norm_warning_suffix = (
+        " Norma topilmadi, standart qiymat ishlatildi." if elec_norm is None else ""
+    )
+
+    # Derive point count from user-placed electricals and ceiling lights.
+    state: dict = room.state or {}
+    placed_electricals = state.get("electricals") or []
+    placed_lights = state.get("lights") or []
+    actual_count = len(placed_electricals) + len(placed_lights)
+
+    if actual_count > 0:
+        elec_points = actual_count
+        is_approximate = False
+        warning_text = (
+            "Elektr kabel hisob-kitobi haqiqiy nuqtalar soniga asoslanadi. "
+            f"Elektrik sxemasini elektrik ustasi bilan tasdiqlang.{norm_warning_suffix}"
+        )
+    else:
+        elec_points = int(elec_params.get("points_default", ELEC_POINTS_DEFAULT))
+        is_approximate = True
+        warning_text = (
+            "Bu taxminiy hisob: elektr nuqtalari soni kiritilmagan. "
+            "Elektrik sxemasini elektrik ustasi bilan "
+            f"tasdiqlang.{norm_warning_suffix}"
+        )
+
+    cable_m = math.ceil(elec_points * avg_run_m * slack)
     return _make_line(
-        label="Elektr kabel (taxminiy)",
+        label="Elektr kabel (taxminiy)" if is_approximate else "Elektr kabel",
         formula=(
-            f"{ELEC_POINTS_DEFAULT} nuqta × {ELEC_AVG_RUN_M} m × "
-            f"{ELEC_SLACK} (zaxira) = {cable_m} m"
+            f"{elec_points} nuqta × {avg_run_m} m × "
+            f"{slack} (zaxira) = {cable_m} m"
         ),
         qty=cable_m,
         unit="m",
-        price_uzs=ELEC_CABLE_PRICE_UZS,
+        price_uzs=price_per_m,
         category="elektr",
-        is_approximate=True,
-        warning=(
-            "Bu taxminiy hisob. Elektrik sxemasini elektrik ustasi bilan "
-            "tasdiqlang."
-        ),
+        is_approximate=is_approximate,
+        warning=warning_text,
     )
 
 
@@ -397,10 +544,16 @@ def compute_estimate(
     }
     floor_mid: str | None = surfaces.get("floor")
 
-    wall_materials: list[Material] = [
+    wall_materials: list = [
         materials_map[mid] for mid in wall_mids if mid in materials_map
     ]
     wall_categories: set[str] = {m.category for m in wall_materials}
+
+    # Wall surfaces map: wall_key -> material_id (includes 'ALL' key)
+    wall_surfaces_map: dict[str, str] = {
+        k: v for k, v in surfaces.items()
+        if k not in NON_WALL_SURFACE_KEYS and v
+    }
 
     # ------------------------------------------------------------------ #
     # 1. Paint (boyoq) + primer + putty                                   #
@@ -409,36 +562,37 @@ def compute_estimate(
         boyoq_mat = next(m for m in wall_materials if m.category == "boyoq")
         boyoq_norm = norms_map.get("boyoq")
         if boyoq_norm and _float(room.net_wall_area) > 0:
-            lines.extend(_paint_lines(room, boyoq_mat, boyoq_norm))
+            lines.extend(_paint_lines(room, boyoq_mat, boyoq_norm, norms_map))
 
     # ------------------------------------------------------------------ #
-    # 2. Wallpaper (oboy)                                                  #
+    # 2. Wallpaper (oboy) — per-wall from design state                   #
     # ------------------------------------------------------------------ #
-    if "oboy" in wall_categories:
-        oboy_mat = next(m for m in wall_materials if m.category == "oboy")
+    wall_coverings_state: dict = (room.state or {}).get("wallCoverings", {})
+    has_any_oboy = any(
+        isinstance(c, dict) and c.get("kind") == "oboy"
+        for c in wall_coverings_state.values()
+    )
+    if has_any_oboy:
         oboy_norm = norms_map.get("oboy")
-        if oboy_norm and _float(room.perimeter) > 0:
-            lines.extend(_wallpaper_lines(room, oboy_mat, oboy_norm))
+        lines.extend(_wallpaper_lines(room, wall_surfaces_map, materials_map, oboy_norm, norms_map))
 
     # ------------------------------------------------------------------ #
     # 3. Floor covering                                                    #
     # ------------------------------------------------------------------ #
-    floor_mat: Material | None = (
-        materials_map.get(floor_mid) if floor_mid else None
-    )
+    floor_mat = materials_map.get(floor_mid) if floor_mid else None
     if floor_mat is not None:
         if floor_mat.category in ("laminat", "parket"):
             laminat_norm = norms_map.get("laminat") or norms_map.get("parket")
             if _float(room.floor_area) > 0:
-                lines.extend(_laminate_lines(room, floor_mat, laminat_norm))
+                lines.extend(_laminate_lines(room, floor_mat, laminat_norm, norms_map))
         elif floor_mat.category == "plitka":
             if _float(room.floor_area) > 0:
                 lines.extend(_tile_lines(room, floor_mat))
 
     # ------------------------------------------------------------------ #
-    # 4. Electrical (always, approximate)                                  #
+    # 4. Electrical — uses actual point counts from state when available   #
     # ------------------------------------------------------------------ #
-    elec_line = _electrical_line(room)
+    elec_line = _electrical_line(room, norms_map)
     lines.append(elec_line)
 
     # ------------------------------------------------------------------ #
@@ -447,7 +601,11 @@ def compute_estimate(
     total_uzs = sum(ln.subtotal_uzs for ln in lines if not ln.is_approximate)
     total_min = int(total_uzs * 0.9)
     total_max = int(total_uzs * 1.1)
-    has_electrical = any(ln.category == "elektr" for ln in lines)
+    # has_electrical is True only when there is at least one confirmed (non-approximate)
+    # electrical line — i.e. the user provided actual point counts.
+    has_electrical = any(
+        ln.category == "elektr" and not ln.is_approximate for ln in lines
+    )
 
     return ComputedEstimate(
         lines=lines,
