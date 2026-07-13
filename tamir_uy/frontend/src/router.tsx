@@ -6,6 +6,7 @@ import {
   type RouteObject,
 } from "react-router-dom";
 import { getToken } from "@/lib/api";
+import { AppShell } from "@/components/layout/AppShell";
 
 // ---------- Auth guard ----------
 
@@ -55,45 +56,16 @@ function NotFoundPage() {
 
 // ---------- Lazy pages ----------
 
-const WizardPage = lazy(
-  () => import("@/pages/wizard/WizardPage")
-);
-
-const StudioPage = lazy(
-  () => import("@/pages/studio/StudioPage")
-);
-
-const ThreeDPage = lazy(
-  () => import("@/pages/studio/ThreeDPage")
-);
-
-const PlacementPage = lazy(
-  () => import("@/pages/studio/PlacementPage")
-);
-
-const WalkthroughPage = lazy(
-  () => import("@/pages/studio/WalkthroughPage")
-);
-
-const SmetaPage = lazy(
-  () => import("@/pages/smeta/SmetaPage")
-);
-
-const UstalarPage = lazy(
-  () => import("@/pages/ustalar/UstalarPage")
-);
-
-const ProjectsPage = lazy(
-  () => import("@/pages/projects/ProjectsPage")
-);
-
-const ProfilePage = lazy(
-  () => import("@/pages/profile/ProfilePage")
-);
-
-const LoginPage = lazy(
-  () => import("@/pages/auth/LoginPage")
-);
+const WizardPage = lazy(() => import("@/pages/wizard/WizardPage"));
+const StudioPage = lazy(() => import("@/pages/studio/StudioPage"));
+const ThreeDPage = lazy(() => import("@/pages/studio/ThreeDPage"));
+const PlacementPage = lazy(() => import("@/pages/studio/PlacementPage"));
+const WalkthroughPage = lazy(() => import("@/pages/studio/WalkthroughPage"));
+const SmetaPage = lazy(() => import("@/pages/smeta/SmetaPage"));
+const ProjectsPage = lazy(() => import("@/pages/projects/ProjectsPage"));
+const DokonPage = lazy(() => import("@/pages/dokon/DokonPage"));
+const ProfilePage = lazy(() => import("@/pages/profile/ProfilePage"));
+const LoginPage = lazy(() => import("@/pages/auth/LoginPage"));
 
 // ---------- Routes ----------
 
@@ -106,6 +78,27 @@ const routes: RouteObject[] = [
     path: "/login",
     element: withSuspense(<LoginPage />),
   },
+
+  // ── Main shell (Uy + Do'kon bottom nav) ──
+  {
+    element: <AppShell />,
+    children: [
+      {
+        path: "/projects",
+        element: withSuspense(<RequireAuth><ProjectsPage /></RequireAuth>),
+      },
+      {
+        path: "/dokon",
+        element: withSuspense(<DokonPage />),
+      },
+      {
+        path: "/profile",
+        element: withSuspense(<ProfilePage />),
+      },
+    ],
+  },
+
+  // ── Full-screen flows (no bottom nav) ──
   {
     path: "/wizard",
     element: withSuspense(<RequireAuth><WizardPage /></RequireAuth>),
@@ -135,18 +128,6 @@ const routes: RouteObject[] = [
   {
     path: "/smeta/:roomId",
     element: withSuspense(<RequireAuth><SmetaPage /></RequireAuth>),
-  },
-  {
-    path: "/ustalar",
-    element: withSuspense(<UstalarPage />),
-  },
-  {
-    path: "/projects",
-    element: withSuspense(<RequireAuth><ProjectsPage /></RequireAuth>),
-  },
-  {
-    path: "/profile",
-    element: withSuspense(<ProfilePage />),
   },
   {
     path: "*",

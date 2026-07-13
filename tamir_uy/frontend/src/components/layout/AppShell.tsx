@@ -1,172 +1,207 @@
-import * as React from 'react'
-import { Outlet, NavLink } from 'react-router-dom'
+import { useState } from 'react'
+import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 
-// ─── Tab configuration ────────────────────────────────────────────────────────
+// ─── Icons ────────────────────────────────────────────────────────────────────
 
-interface TabItem {
-  to: string
-  label: string
-  icon: React.ReactNode
-}
-
-// SVG icons — named for what they represent, not generic labels
-const IconProjects = () => (
-  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
-    <polyline points="9 22 9 12 15 12 15 22" />
-  </svg>
-)
-
-const IconWizard = () => (
-  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <line x1="21" y1="2" x2="2" y2="21" />
-    <path d="M6.27 18.68a5 5 0 006.36.32M17.73 5.32a5 5 0 00-6.36-.32" />
-    <path d="M4 4l1 1M20 20l-1-1M4 20l1-1M20 4l-1 1" />
-  </svg>
-)
-
-const IconMasters = () => (
-  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" />
-    <circle cx="9" cy="7" r="4" />
-    <path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75" />
-  </svg>
-)
-
-const IconMaterials = () => (
-  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <rect x="3" y="3" width="7" height="7" />
-    <rect x="14" y="3" width="7" height="7" />
-    <rect x="14" y="14" width="7" height="7" />
-    <rect x="3" y="14" width="7" height="7" />
-  </svg>
-)
-
-const IconProfile = () => (
-  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2" />
-    <circle cx="12" cy="7" r="4" />
-  </svg>
-)
-
-const TABS: TabItem[] = [
-  { to: '/loyihalar', label: 'Loyihalar', icon: <IconProjects /> },
-  { to: '/wizard', label: 'Hisob-kitob', icon: <IconWizard /> },
-  { to: '/ustalar', label: 'Ustalar', icon: <IconMasters /> },
-  { to: '/materiallar', label: 'Materiallar', icon: <IconMaterials /> },
-  { to: '/profil', label: 'Profil', icon: <IconProfile /> },
-]
-
-// ─── Running Total Bar ────────────────────────────────────────────────────────
-
-interface RunningTotalBarProps {
-  total: number | null
-}
-
-function RunningTotalBar({ total }: RunningTotalBarProps) {
-  if (total === null) return null
-
-  const formatted = new Intl.NumberFormat('uz-UZ').format(total)
-
-  return (
-    <div
-      className={[
-        'w-full bg-brand text-white',
-        'flex items-center justify-between',
-        'px-4 py-2',
-        'text-sm font-semibold',
-        'transition-all duration-300',
-      ].join(' ')}
-      role="status"
-      aria-live="polite"
-      aria-label={`Jami narx: ${formatted} UZS`}
-    >
-      <span className="text-white/80 font-normal">Taxminiy narx</span>
-      <span style={{ fontVariantNumeric: 'tabular-nums' }}>
-        {formatted}{' '}
-        <span className="font-normal text-white/80 text-xs">UZS</span>
-      </span>
-    </div>
+function IconHome({ filled }: { filled?: boolean }) {
+  return filled ? (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="#1E40AF" aria-hidden="true">
+      <path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/>
+    </svg>
+  ) : (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/>
+      <polyline points="9 22 9 12 15 12 15 22"/>
+    </svg>
   )
 }
 
-// ─── Tab Bar ──────────────────────────────────────────────────────────────────
+function IconShop({ filled }: { filled?: boolean }) {
+  return filled ? (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#1E40AF" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z"/>
+      <line x1="3" y1="6" x2="21" y2="6"/>
+      <path d="M16 10a4 4 0 01-8 0"/>
+    </svg>
+  ) : (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z"/>
+      <line x1="3" y1="6" x2="21" y2="6"/>
+      <path d="M16 10a4 4 0 01-8 0"/>
+    </svg>
+  )
+}
 
-function TabBar() {
+// ─── Bottom Sheet (screen 03) ─────────────────────────────────────────────────
+
+function NewProjectSheet({ onClose }: { onClose: () => void }) {
+  const navigate = useNavigate()
+
+  const options = [
+    {
+      icon: (
+        <svg width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="#1E40AF" strokeWidth="1.75" aria-hidden="true">
+          <rect x="4" y="4" width="20" height="20" rx="4"/>
+          <path d="M9 14h10M14 9v10"/>
+          <circle cx="14" cy="14" r="3" strokeDasharray="2 2"/>
+        </svg>
+      ),
+      bg: "#EEF2FF",
+      title: "LiDAR skaner",
+      desc: "Xonani LiDAR yordamida skanerlang va avtomatik 3D model oling",
+      action: () => { onClose(); navigate("/wizard?mode=lidar") },
+    },
+    {
+      icon: (
+        <svg width="28" height="28" viewBox="0 0 28 28" fill="none" strokeWidth="1.75" aria-hidden="true">
+          <circle cx="14" cy="14" r="10" stroke="#F97316"/>
+          <path d="M14 9v5l3 1.5" stroke="#F97316" strokeLinecap="round"/>
+          <text x="8" y="20" fontSize="6" fill="#F97316" fontWeight="700" fontFamily="sans-serif">360°</text>
+        </svg>
+      ),
+      bg: "#FFF1E7",
+      title: "360° Foto skan",
+      desc: "Xonani 360° rasmga oling — ilova nuqtalarni o'zi belgilaydi",
+      action: () => { onClose(); navigate("/wizard?mode=360") },
+    },
+    {
+      icon: (
+        <svg width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="#159C5B" strokeWidth="1.75" aria-hidden="true">
+          <rect x="5" y="5" width="18" height="18" rx="2"/>
+          <path d="M5 11h18M11 5v18"/>
+        </svg>
+      ),
+      bg: "#EAF7F0",
+      title: "Razmer / Plan yuklash",
+      desc: "O'lchamlarni kiriting yoki floorplan rasmini yuklang",
+      action: () => { onClose(); navigate("/wizard") },
+    },
+  ]
+
+  return (
+    <>
+      <div
+        className="fixed inset-0 z-40 bg-[rgba(17,24,39,.5)] backdrop-blur-sm"
+        onClick={onClose}
+      />
+      <div className="fixed bottom-0 left-0 right-0 z-50 bg-white rounded-t-sheet pb-8 animate-slide-up">
+        <div className="flex justify-center pt-3 pb-2">
+          <div className="w-11 h-1.5 rounded-full bg-gray-300" />
+        </div>
+        <div className="px-5 pb-2">
+          <h2 className="text-[21px] font-extrabold text-gray-900">Yangi loyiha</h2>
+          <p className="text-sm text-muted mt-0.5">Xonani qanday qo'shmoqchisiz?</p>
+        </div>
+        <div className="px-5 pt-3 flex flex-col gap-3">
+          {options.map((opt) => (
+            <button
+              key={opt.title}
+              onClick={opt.action}
+              className="flex items-center gap-4 p-4 bg-[#F7F8FA] border border-[#EDEFF3] rounded-[20px] text-left hover:bg-gray-100 transition-colors active:scale-[0.98]"
+            >
+              <div
+                className="w-14 h-14 rounded-2xl flex items-center justify-center flex-shrink-0"
+                style={{ backgroundColor: opt.bg }}
+              >
+                {opt.icon}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-base font-bold text-gray-900">{opt.title}</p>
+                <p className="text-[13px] text-muted mt-0.5 leading-snug">{opt.desc}</p>
+              </div>
+              <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="#9CA3AF" strokeWidth="1.5" className="flex-shrink-0">
+                <path d="M7.5 5l5 5-5 5"/>
+              </svg>
+            </button>
+          ))}
+        </div>
+      </div>
+    </>
+  )
+}
+
+// ─── Bottom Nav ───────────────────────────────────────────────────────────────
+
+function BottomNav({ onFab }: { onFab: () => void }) {
   return (
     <nav
       aria-label="Asosiy navigatsiya"
-      className={[
-        'fixed bottom-0 left-0 right-0 z-30',
-        'bg-white dark:bg-neutral-900',
-        'border-t border-neutral-100 dark:border-neutral-800',
-        'flex items-stretch',
-        'shadow-[0_-1px_12px_rgba(0,0,0,0.06)]',
-      ].join(' ')}
-      style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+      className="fixed bottom-0 left-0 right-0 z-30 bg-white h-[94px] border-t border-[#F0F1F4]"
+      style={{
+        boxShadow: '0 -10px 26px rgba(17,24,39,.06)',
+        paddingBottom: 'env(safe-area-inset-bottom)',
+      }}
     >
-      {TABS.map((tab) => (
+      <div className="flex items-center justify-around h-full">
         <NavLink
-          key={tab.to}
-          to={tab.to}
+          to="/projects"
           className={({ isActive }) =>
-            [
-              'flex-1 flex flex-col items-center justify-center gap-0.5',
-              'pt-2 pb-1 min-h-[56px]',
-              'text-[10px] font-medium transition-colors duration-150',
-              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand',
-              isActive
-                ? 'text-brand'
-                : 'text-neutral-400 dark:text-neutral-500 hover:text-neutral-600 dark:hover:text-neutral-300',
-            ].join(' ')
+            `flex flex-col items-center gap-1 min-w-[60px] pb-4 transition-colors ${
+              isActive ? 'text-brand' : 'text-subtle'
+            }`
           }
-          aria-label={tab.label}
         >
           {({ isActive }) => (
             <>
-              <span
-                className={[
-                  'transition-transform duration-150',
-                  isActive ? 'scale-110' : '',
-                ].join(' ')}
-              >
-                {tab.icon}
+              <IconHome filled={isActive} />
+              <span className={`text-[11px] ${isActive ? 'font-bold text-brand' : 'font-semibold text-subtle'}`}>
+                Uy
               </span>
-              <span>{tab.label}</span>
             </>
           )}
         </NavLink>
-      ))}
+
+        {/* FAB — floats 22px above bar */}
+        <div className="flex flex-col items-center" style={{ marginBottom: 44 }}>
+          <button
+            onClick={onFab}
+            aria-label="Yangi loyiha qo'shish"
+            className="w-16 h-16 rounded-full flex items-center justify-center border-4 border-white"
+            style={{
+              background: 'linear-gradient(160deg,#2952D6,#1E40AF)',
+              boxShadow: '0 14px 26px -6px rgba(30,64,175,.6)',
+            }}
+          >
+            <svg width="28" height="28" viewBox="0 0 28 28" fill="none" aria-hidden="true">
+              <path d="M14 6v16M6 14h16" stroke="white" strokeWidth="2.5" strokeLinecap="round"/>
+            </svg>
+          </button>
+        </div>
+
+        <NavLink
+          to="/dokon"
+          className={({ isActive }) =>
+            `flex flex-col items-center gap-1 min-w-[60px] pb-4 transition-colors ${
+              isActive ? 'text-brand' : 'text-subtle'
+            }`
+          }
+        >
+          {({ isActive }) => (
+            <>
+              <IconShop filled={isActive} />
+              <span className={`text-[11px] ${isActive ? 'font-bold text-brand' : 'font-semibold text-subtle'}`}>
+                Do'kon
+              </span>
+            </>
+          )}
+        </NavLink>
+      </div>
     </nav>
   )
 }
 
 // ─── AppShell ─────────────────────────────────────────────────────────────────
 
-interface AppShellProps {
-  /** When non-null, renders the running total bar above the tab bar. */
-  estimateTotal?: number | null
-}
-
-export function AppShell({ estimateTotal = null }: AppShellProps) {
-  // Height of bottom UI: tab bar (56px) + optional total bar (40px) + safe area
-  const bottomOffset = estimateTotal !== null ? 'pb-[calc(56px+40px)]' : 'pb-[56px]'
+export function AppShell() {
+  const [sheetOpen, setSheetOpen] = useState(false)
 
   return (
-    <div className="flex flex-col min-h-screen bg-neutral-50 dark:bg-neutral-950">
-      {/* Page content — leaves room for bottom chrome */}
-      <main className={`flex-1 ${bottomOffset}`}>
+    <div className="flex flex-col min-h-screen bg-paper">
+      <main className="flex-1 pb-[94px]">
         <Outlet />
       </main>
-
-      {/* Bottom chrome (stacked) */}
-      <div
-        className="fixed bottom-0 left-0 right-0 z-30 flex flex-col"
-        style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
-      >
-        <RunningTotalBar total={estimateTotal} />
-        <TabBar />
-      </div>
+      <BottomNav onFab={() => setSheetOpen(true)} />
+      {sheetOpen && <NewProjectSheet onClose={() => setSheetOpen(false)} />}
     </div>
   )
 }

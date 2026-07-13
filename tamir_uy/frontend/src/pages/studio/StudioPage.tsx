@@ -8,48 +8,32 @@ import { cn } from "@/lib/utils";
 import { useRoomStore, computeFloorArea } from "@/store/roomStore";
 
 function StudioNav({ roomId }: { roomId: string }) {
+  const navItems = [
+    { to: `/studio/${roomId}/ichkarida`, label: "3D" },
+    { to: `/studio/${roomId}/elektr`, label: "Elektr" },
+    { to: `/studio/${roomId}/aylanish`, label: "Aylanish" },
+  ];
   return (
-    <nav className="flex gap-2 border-b border-gray-200 bg-surface px-4 pt-3">
-      <NavLink
-        to={`/studio/${roomId}/ichkarida`}
-        className={({ isActive }) =>
-          cn(
-            "px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors",
-            isActive
-              ? "border-brand text-brand"
-              : "border-transparent text-muted hover:text-gray-900"
-          )
-        }
-      >
-        {uz.studio.ichkarida}
-      </NavLink>
-      <NavLink
-        to={`/studio/${roomId}/elektr`}
-        className={({ isActive }) =>
-          cn(
-            "px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors",
-            isActive
-              ? "border-brand text-brand"
-              : "border-transparent text-muted hover:text-gray-900"
-          )
-        }
-      >
-        ⚡ Elektr
-      </NavLink>
-      <NavLink
-        to={`/studio/${roomId}/aylanish`}
-        className={({ isActive }) =>
-          cn(
-            "px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors",
-            isActive
-              ? "border-brand text-brand"
-              : "border-transparent text-muted hover:text-gray-900"
-          )
-        }
-      >
-        🚶 Aylanish
-      </NavLink>
-    </nav>
+    <div className="flex justify-center px-4 py-2 bg-white border-b border-[#F0F1F4]">
+      <nav className="flex bg-[#F3F4F6] rounded-[14px] p-1 gap-1">
+        {navItems.map((item) => (
+          <NavLink
+            key={item.to}
+            to={item.to}
+            className={({ isActive }) =>
+              cn(
+                "px-4 py-1.5 rounded-xl text-[14px] font-semibold transition-all",
+                isActive
+                  ? "bg-white text-brand shadow-sm"
+                  : "text-muted hover:text-gray-700"
+              )
+            }
+          >
+            {item.label}
+          </NavLink>
+        ))}
+      </nav>
+    </div>
   );
 }
 
@@ -244,38 +228,48 @@ export default function StudioPage() {
   }
 
   return (
-    <div className="flex flex-col min-h-screen bg-paper">
-      {/* Header */}
-      <header className="bg-surface shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 py-3 flex items-center gap-3">
+    <div className="flex flex-col min-h-screen bg-[#EEF1F7]">
+      {/* Header — design screen 08 */}
+      <header className="bg-white">
+        <div className="px-4 pt-12 pb-3 flex items-center gap-3">
+          {/* Back button */}
           <NavLink
             to="/projects"
-            className="shrink-0 flex items-center justify-center w-8 h-8 rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-900 transition-colors"
-            title="Loyihalarga qaytish"
+            className="w-10 h-10 rounded-full bg-[#F3F4F6] flex items-center justify-center flex-shrink-0"
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
-              <polyline points="9 22 9 12 15 12 15 22"/>
+            <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="#111827" strokeWidth="2" strokeLinecap="round">
+              <path d="M11 4L6 9l5 5"/>
             </svg>
           </NavLink>
-          <h1 className="text-lg font-bold text-gray-900 truncate">{room.name}</h1>
-          <span className="text-sm text-muted ml-auto">
-            {room.area} m² · {room.renovation_level}
-          </span>
-          <button
-            onClick={handleSave}
-            disabled={saveStatus === 'saving' || (fetchStatus !== 'notfound' && !isDirty)}
-            className={[
-              "ml-3 px-4 py-1.5 rounded-card text-sm font-semibold transition-colors",
-              saveStatus === 'saved'
-                ? "bg-green-500 text-white"
-                : (isDirty || fetchStatus === 'notfound')
-                  ? "bg-brand text-white hover:bg-brand/90"
-                  : "bg-gray-100 text-gray-400 cursor-default",
-            ].join(' ')}
-          >
-            {saveStatus === 'saving' ? 'Saqlanmoqda…' : saveStatus === 'saved' ? 'Saqlandi ✓' : 'Saqlash'}
-          </button>
+          {/* Title + dims */}
+          <div className="flex-1 min-w-0 text-center">
+            <p className="text-[20px] font-extrabold text-gray-900 truncate">{room.name}</p>
+            <p className="text-[12px] text-muted">
+              {room.length?.toFixed(1)} × {room.width?.toFixed(1)} × {room.ceiling_height?.toFixed(1)} m
+            </p>
+          </div>
+          {/* Save + kebab */}
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <button
+              onClick={handleSave}
+              disabled={saveStatus === 'saving' || (fetchStatus !== 'notfound' && !isDirty)}
+              className={[
+                "px-4 py-1.5 rounded-xl text-[13px] font-bold transition-colors",
+                saveStatus === 'saved'
+                  ? "bg-success text-white"
+                  : (isDirty || fetchStatus === 'notfound')
+                    ? "bg-brand text-white"
+                    : "bg-brand-tint text-brand",
+              ].join(' ')}
+            >
+              {saveStatus === 'saving' ? '…' : saveStatus === 'saved' ? '✓' : 'Saqlash'}
+            </button>
+            <button className="w-10 h-10 rounded-full bg-[#F3F4F6] flex items-center justify-center">
+              <svg width="18" height="18" viewBox="0 0 18 18" fill="#6B7280">
+                <circle cx="9" cy="4" r="1.5"/><circle cx="9" cy="9" r="1.5"/><circle cx="9" cy="14" r="1.5"/>
+              </svg>
+            </button>
+          </div>
         </div>
         <StudioNav roomId={room.id} />
       </header>
