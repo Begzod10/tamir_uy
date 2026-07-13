@@ -11,6 +11,8 @@ import { cn } from "@/lib/utils";
 import MaterialPanel from "./MaterialPanel";
 import type { Room, Material } from "@/lib/api";
 import * as THREE from "three";
+import { getMaterialTextures, inferTextureKey } from "@/lib/materialTextures";
+import type { MaterialTextureKey } from "@/lib/materialTextures";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -260,11 +262,17 @@ function WallWithOpenings({
 
 // ─── Room geometry ────────────────────────────────────────────────────────────
 
+interface MaterialTextureMeta {
+  key: MaterialTextureKey;
+  tint?: string;
+}
+
 interface RoomGeometryProps {
   room: Room;
   geometry: RoomGeometry;
   surfaces: AppliedSurfaces;
   materialColorMap: Map<string, string>;
+  materialTextureMeta: Map<string, MaterialTextureMeta>;
   selectedSurface: SurfaceId | null;
   onSurfaceClick: (id: SurfaceId) => void;
 }
@@ -274,6 +282,7 @@ function RoomGeometry({
   geometry,
   surfaces,
   materialColorMap,
+  materialTextureMeta,
   selectedSurface,
   onSurfaceClick,
 }: RoomGeometryProps) {
@@ -286,6 +295,12 @@ function RoomGeometry({
     const matId = surfaces[id as keyof AppliedSurfaces];
     if (!matId) return def;
     return materialColorMap.get(matId) ?? def;
+  }
+
+  function surfaceTextures(id: SurfaceId, fallbackKey: MaterialTextureKey) {
+    const matId = surfaces[id as keyof AppliedSurfaces];
+    const meta = matId ? materialTextureMeta.get(matId) : undefined;
+    return getMaterialTextures(meta?.key ?? fallbackKey);
   }
 
   const wallA = geometry.walls.find((w) => w.id === "A");
@@ -303,12 +318,24 @@ function RoomGeometry({
         onClick={() => onSurfaceClick("floor")}
       >
         <planeGeometry args={[W, D]} />
-        <meshStandardMaterial
-          color={wallColor("floor", "#C4A27A")}
-          roughness={0.5}
-          metalness={0.04}
-          envMapIntensity={1.5}
-        />
+        {(() => {
+          const tex = surfaceTextures("floor", "parquet");
+          tex.map.repeat.set(tex.repeat[0], tex.repeat[1]);
+          tex.roughnessMap.repeat.set(tex.repeat[0], tex.repeat[1]);
+          const baseColor = wallColor("floor", "#C4A27A");
+          return (
+            <meshStandardMaterial
+              color={selectedSurface === "floor" ? baseColor : baseColor}
+              map={tex.map}
+              roughnessMap={tex.roughnessMap}
+              roughness={tex.roughness}
+              metalness={tex.metalness}
+              envMapIntensity={1.5}
+              emissive={selectedSurface === "floor" ? new THREE.Color("#D85A30") : new THREE.Color(0x000000)}
+              emissiveIntensity={selectedSurface === "floor" ? 0.15 : 0}
+            />
+          );
+        })()}
       </mesh>
 
       {/* Ceiling — slightly visible, not glass */}
@@ -418,6 +445,7 @@ interface SceneProps {
   geometry: RoomGeometry;
   surfaces: AppliedSurfaces;
   materialColorMap: Map<string, string>;
+  materialTextureMeta: Map<string, MaterialTextureMeta>;
   timeOfDay: TimeOfDay;
   selectedSurface: SurfaceId | null;
   onSurfaceClick: (id: SurfaceId) => void;
@@ -428,6 +456,7 @@ function Scene({
   geometry,
   surfaces,
   materialColorMap,
+  materialTextureMeta,
   timeOfDay,
   selectedSurface,
   onSurfaceClick,
@@ -509,6 +538,7 @@ function Scene({
         geometry={geometry}
         surfaces={surfaces}
         materialColorMap={materialColorMap}
+        materialTextureMeta={materialTextureMeta}
         selectedSurface={selectedSurface}
         onSurfaceClick={onSurfaceClick}
       />
@@ -556,6 +586,7 @@ export default function ThreeDStudio({ room }: ThreeDStudioProps) {
   const [selectedSurface, setSelectedSurface] = useState<SurfaceId | null>(null);
   const [showPanel, setShowPanel] = useState(false);
   const [materialColorMap, setMaterialColorMap] = useState<Map<string, string>>(new Map());
+  const [materialTextureMeta, setMaterialTextureMeta] = useState<Map<string, MaterialTextureMeta>>(new Map());
 
   const saveMutation = useMutation({
     mutationFn: (designState: Record<string, unknown>) =>
@@ -572,9 +603,15 @@ export default function ThreeDStudio({ room }: ThreeDStudioProps) {
     if (!selectedSurface) return;
     applySurface(selectedSurface, material.id);
 
-    // Cache the color for rendering
+    // Cache the color and texture for rendering
     const color = material.color_hex ?? "#D0C8C0";
     setMaterialColorMap((prev) => new Map(prev).set(material.id, color));
+
+    // Infer texture key from material metadata
+    const texKey = inferTextureKey(material.texture_key, material.name_uz);
+    if (texKey) {
+      setMaterialTextureMeta((prev) => new Map(prev).set(material.id, { key: texKey }));
+    }
 
     // Autosave
     const currentDesignState = (room.design_state ?? {}) as Record<string, unknown>;
@@ -624,6 +661,7 @@ export default function ThreeDStudio({ room }: ThreeDStudioProps) {
               geometry={geometry}
               surfaces={surfaces}
               materialColorMap={materialColorMap}
+              materialTextureMeta={materialTextureMeta}
               timeOfDay={timeOfDay}
               selectedSurface={selectedSurface}
               onSurfaceClick={handleSurfaceClick}

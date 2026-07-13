@@ -255,6 +255,7 @@ MATERIALS: list[dict] = [
         "price_uzs": 180_000,
         "color_hex": "#8B6F47",
         "pbr_roughness": 0.70,
+        "texture_key": "parquet",
     },
     {
         "store_ref": "LaminatShop",
@@ -264,6 +265,7 @@ MATERIALS: list[dict] = [
         "price_uzs": 210_000,
         "color_hex": "#5C4033",
         "pbr_roughness": 0.65,
+        "texture_key": "parquet_herringbone",
     },
     # ---------- plitka (Unitile Toshkent) ------------------------------
     {
@@ -274,6 +276,7 @@ MATERIALS: list[dict] = [
         "price_uzs": 165_000,
         "color_hex": "#F8F8F8",
         "pbr_roughness": 0.20,
+        "texture_key": "tile_ceramic",
     },
     {
         "store_ref": "Unitile Toshkent",
@@ -283,6 +286,7 @@ MATERIALS: list[dict] = [
         "price_uzs": 175_000,
         "color_hex": "#9E9E9E",
         "pbr_roughness": 0.30,
+        "texture_key": "concrete",
     },
 ]
 
@@ -421,6 +425,7 @@ async def _seed_materials(session, store_map: dict[str, Store]) -> None:
                 price_uzs=data["price_uzs"],
                 color_hex=data["color_hex"],
                 pbr_roughness=data["pbr_roughness"],
+                texture_key=data.get("texture_key"),
                 is_active=True,
             )
             session.add(material)
@@ -428,6 +433,7 @@ async def _seed_materials(session, store_map: dict[str, Store]) -> None:
         else:
             material.price_uzs = data["price_uzs"]
             material.pbr_roughness = data["pbr_roughness"]
+            material.texture_key = data.get("texture_key")
             log.info("Material updated: %s", data["name_uz"])
     await session.flush()
 
