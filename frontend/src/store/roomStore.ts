@@ -126,6 +126,7 @@ interface RoomStore {
   isDirty: boolean
   wizardStep: number
   designState: DesignState
+  highQuality3d: boolean
 
   // Actions
   setDraftId(id: string | null): void
@@ -157,6 +158,7 @@ interface RoomStore {
   setWizardStep(step: number): void
   setDesignState(patch: Partial<DesignState>): void
   setWallCovering(wallId: 'ALL' | 'A' | 'B' | 'C' | 'D', covering: WallCovering): void
+  setHighQuality3d(v: boolean): void
   resetRoom(): void
 }
 
@@ -195,6 +197,8 @@ export const useRoomStore = create<RoomStore>()(
   isDirty: false,
   wizardStep: 0,
   designState: DEFAULT_DESIGN_STATE,
+  // Auto-detect mobile: no fine pointer = touch device → default off
+  highQuality3d: typeof window !== 'undefined' && window.matchMedia('(pointer:fine)').matches,
 
   setDraftId(id) {
     set({ draftId: id })
@@ -435,6 +439,10 @@ export const useRoomStore = create<RoomStore>()(
         wallCoverings: { ...state.designState.wallCoverings, [wallId]: covering },
       },
     }))
+  },
+
+  setHighQuality3d(v) {
+    set({ highQuality3d: v })
   },
 
   resetRoom() {
