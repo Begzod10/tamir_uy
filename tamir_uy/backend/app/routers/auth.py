@@ -3,23 +3,42 @@ from __future__ import annotations
 from typing import Annotated
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.deps import CurrentUser
+from app.config import settings
 from app.core.cache import get_redis
-from app.core.security import create_access_token, create_refresh_token
+from app.core.security import create_access_token
 from app.core.sms import generate_otp, send_otp, store_otp, verify_otp
 from app.database import get_db
 from app.models.user import User
-from app.schemas.auth import OTPRequest, OTPVerify, TokenResponse
+from app.schemas.auth import LoginResponse, OTPRequest, OTPVerify, UserOut
 
 logger = structlog.get_logger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
-_OTP_RATE_LIMIT = 3        # max requests per window
-_OTP_RATE_WINDOW = 600     # seconds (10 minutes)
+_OTP_RATE_LIMIT = 3        # max send requests per window
+_OTP_RATE_WINDOW = 600     # 10 minutes
+_OTP_MAX_ATTEMPTS = 5      # max verify attempts before lockout
+_OTP_ATTEMPT_TTL = 300     # 5 minutes — same as OTP lifetime
+
+_IS_DEV = settings.ENVIRONMENT == "development"
+_COOKIE_MAX_AGE = settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
+
+
+def _set_auth_cookie(response: Response, token: str) -> None:
+    response.set_cookie(
+        key="token",
+        value=token,
+        httponly=True,
+        secure=not _IS_DEV,  # HTTPS-only in production
+        samesite="lax",
+        max_age=_COOKIE_MAX_AGE,
+        path="/",
+    )
 
 
 @router.post(
@@ -27,15 +46,10 @@ _OTP_RATE_WINDOW = 600     # seconds (10 minutes)
     status_code=status.HTTP_200_OK,
     summary="Request an OTP via SMS",
 )
-async def request_otp(
-    body: OTPRequest,
-) -> dict[str, str]:
-    """Generate a 6-digit OTP, store it in Redis with a 5-minute TTL, and
-    dispatch it via SMS.  Returns 429 when the same phone has requested more
-    than 3 codes within a 10-minute window."""
+async def request_otp(body: OTPRequest) -> dict[str, str]:
+    """Rate-limited: max 3 sends per phone per 10 min."""
     redis = get_redis()
 
-    # Rate limiting
     rate_key = f"otp_rate:{body.phone}"
     count_raw = await redis.get(rate_key)
     count = int(count_raw) if count_raw else 0
@@ -45,18 +59,15 @@ async def request_otp(
             detail="Too many OTP requests. Please wait before trying again.",
         )
 
-    # Increment counter; set expiry only on the first increment in this window
     pipe = redis.pipeline()
     await pipe.incr(rate_key)
     if count == 0:
         await pipe.expire(rate_key, _OTP_RATE_WINDOW)
     await pipe.execute()
 
-    # Generate and store the OTP
     code = generate_otp()
     await store_otp(body.phone, code, redis)
 
-    # Dispatch SMS (non-blocking: failures are logged but do not abort the request)
     try:
         delivered = await send_otp(body.phone, code)
         if not delivered:
@@ -70,27 +81,42 @@ async def request_otp(
 
 @router.post(
     "/otp/verify",
-    response_model=TokenResponse,
+    response_model=LoginResponse,
     status_code=status.HTTP_200_OK,
-    summary="Verify OTP and obtain JWT pair",
+    summary="Verify OTP, set HttpOnly cookie, return user info",
 )
 async def verify_otp_endpoint(
     body: OTPVerify,
+    response: Response,
     db: Annotated[AsyncSession, Depends(get_db)],
-) -> TokenResponse:
-    """Verify the OTP code from Redis. On success, upsert the User row and
-    return a JWT access + refresh token pair.  Returns 400 on invalid/expired
-    code."""
+) -> LoginResponse:
+    """Brute-force guarded (max 5 attempts per 5-min window).
+    On success: sets an HttpOnly JWT cookie; JWT is NOT in the response body."""
     redis = get_redis()
+
+    attempts_key = f"otp_attempts:{body.phone}"
+    attempts_raw = await redis.get(attempts_key)
+    attempts = int(attempts_raw) if attempts_raw else 0
+    if attempts >= _OTP_MAX_ATTEMPTS:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many failed attempts. Wait 5 minutes and request a new OTP.",
+        )
 
     is_valid = await verify_otp(body.phone, body.code, redis)
     if not is_valid:
+        pipe = redis.pipeline()
+        await pipe.incr(attempts_key)
+        if attempts == 0:
+            await pipe.expire(attempts_key, _OTP_ATTEMPT_TTL)
+        await pipe.execute()
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid or expired OTP code.",
         )
 
-    # Upsert user
+    await redis.delete(attempts_key)
+
     result = await db.execute(select(User).where(User.phone == body.phone))
     user = result.scalar_one_or_none()
     if user is None:
@@ -100,8 +126,24 @@ async def verify_otp_endpoint(
 
     logger.info("user_authenticated", user_id=str(user.id), phone=body.phone)
 
-    subject = str(user.id)
-    return TokenResponse(
-        access_token=create_access_token(subject),
-        refresh_token=create_refresh_token(subject),
-    )
+    _set_auth_cookie(response, create_access_token(str(user.id)))
+
+    return LoginResponse(user=UserOut.model_validate(user))
+
+
+@router.get(
+    "/me",
+    response_model=UserOut,
+    summary="Return current user from cookie session",
+)
+async def get_me(current_user: CurrentUser) -> UserOut:
+    return UserOut.model_validate(current_user)
+
+
+@router.post(
+    "/logout",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Clear the auth cookie",
+)
+async def logout(response: Response) -> None:
+    response.delete_cookie(key="token", path="/", samesite="lax")

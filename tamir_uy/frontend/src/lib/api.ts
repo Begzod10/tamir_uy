@@ -15,7 +15,7 @@ export function clearToken(): void {
 }
 
 function handleUnauthorized(): never {
-  clearToken();
+  clearToken(); // clear any legacy localStorage token
   window.location.href = "/login";
   throw new Error("Unauthorized");
 }
@@ -24,19 +24,14 @@ async function apiClient<T>(
   path: string,
   options: RequestInit = {}
 ): Promise<T> {
-  const token = getToken();
-
   const headers: HeadersInit = {
     "Content-Type": "application/json",
     ...(options.headers as Record<string, string> | undefined),
   };
 
-  if (token) {
-    (headers as Record<string, string>)["Authorization"] = `Bearer ${token}`;
-  }
-
   const response = await fetch(`${BASE_URL}${path}`, {
     ...options,
+    credentials: "include",   // send HttpOnly cookie on every request
     headers,
   });
 
@@ -59,32 +54,39 @@ async function apiClient<T>(
 
 // ---------- Auth types ----------
 
-export interface TokenResponse {
-  access_token: string;
-  token_type: string;
+export interface AuthUser {
+  id: string;
+  phone: string;
+  name: string | null;
+  created_at: string;
 }
 
-export interface OTPResponse {
-  detail: string;
+export interface LoginResponse {
+  user: AuthUser;
 }
 
 // ---------- Auth ----------
 
-export async function requestOTP(phone: string): Promise<OTPResponse> {
-  return apiClient<OTPResponse>("/auth/otp/request", {
+export async function requestOTP(phone: string): Promise<{ message: string }> {
+  return apiClient<{ message: string }>("/auth/otp/request", {
     method: "POST",
     body: JSON.stringify({ phone }),
   });
 }
 
-export async function verifyOTP(
-  phone: string,
-  code: string
-): Promise<TokenResponse> {
-  return apiClient<TokenResponse>("/auth/otp/verify", {
+export async function verifyOTP(phone: string, code: string): Promise<LoginResponse> {
+  return apiClient<LoginResponse>("/auth/otp/verify", {
     method: "POST",
     body: JSON.stringify({ phone, code }),
   });
+}
+
+export async function getMe(): Promise<AuthUser> {
+  return apiClient<AuthUser>("/auth/me");
+}
+
+export async function logoutApi(): Promise<void> {
+  await apiClient<void>("/auth/logout", { method: "POST" });
 }
 
 // ---------- Apartment types ----------
@@ -101,7 +103,7 @@ export interface Apartment {
 export interface ApartmentRoom {
   id: string;
   name: string;
-  floor_area: number;
+  floor_area: number | null;
 }
 
 export interface CreateApartmentData {
@@ -149,7 +151,7 @@ export interface Room {
   id: string;
   apartment_id: string;
   name: string;
-  // Required fields (always provided by StudioPage context)
+  // Synthetic fields — always set by StudioPage.localRoom before being consumed
   room_type: string;
   area: number;
   ceiling_height: number;
@@ -161,16 +163,17 @@ export interface Room {
   renovation_level: string;
   design_state: Record<string, unknown>;
   created_at: string;
-  // Extended API fields (optional, returned by backend)
+  // Backend API fields (RoomOut schema) — all optional/nullable
   ceiling_h?: number | null;
   geometry?: RoomGeometryData | null;
   surfaces?: Record<string, unknown> | null;
   furniture_layout?: unknown[] | null;
+  state?: Record<string, unknown> | null;
   floor_area?: number | null;
   net_wall_area?: number | null;
   perimeter?: number | null;
-  openings_count?: number;
-  updated_at?: string;
+  openings_count?: number | null;
+  updated_at?: string | null;
 }
 
 export interface CreateRoomData {

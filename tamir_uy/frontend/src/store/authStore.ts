@@ -1,38 +1,26 @@
 import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
+import type { AuthUser } from '@/lib/api'
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-export interface AuthUser {
-  id: string
-  phone: string
-  name: string
-}
+export type { AuthUser }
 
 interface AuthStore {
-  token: string | null
   user: AuthUser | null
-
-  // Derived
   isAuthenticated: boolean
 
-  // Actions
-  setToken(token: string): void
+  setAuthenticated(user: AuthUser): void
   setUser(user: AuthUser): void
   logout(): void
 }
 
-// ─── Store ────────────────────────────────────────────────────────────────────
-
 export const useAuthStore = create<AuthStore>()(
   persist(
     (set) => ({
-      token: null,
       user: null,
       isAuthenticated: false,
 
-      setToken(token) {
-        set({ token, isAuthenticated: true })
+      setAuthenticated(user) {
+        set({ user, isAuthenticated: true })
       },
 
       setUser(user) {
@@ -40,31 +28,20 @@ export const useAuthStore = create<AuthStore>()(
       },
 
       logout() {
-        set({ token: null, user: null, isAuthenticated: false })
+        set({ user: null, isAuthenticated: false })
       },
     }),
     {
       name: 'uy-tamir-auth',
       storage: createJSONStorage(() => localStorage),
-      // Only persist token; user is re-fetched on app boot if needed
+      // Only persist the flag and user profile — the JWT stays in the HttpOnly cookie
       partialize: (state) => ({
-        token: state.token,
         user: state.user,
         isAuthenticated: state.isAuthenticated,
       }),
-      // Rehydrate isAuthenticated from persisted token
-      onRehydrateStorage: () => (state) => {
-        if (state) {
-          state.isAuthenticated = state.token !== null
-        }
-      },
     },
   ),
 )
 
-// ─── Selectors ────────────────────────────────────────────────────────────────
-
-/** Typed selector — avoids re-renders when unrelated slice changes. */
-export const selectToken = (s: AuthStore) => s.token
 export const selectUser = (s: AuthStore) => s.user
 export const selectIsAuthenticated = (s: AuthStore) => s.isAuthenticated

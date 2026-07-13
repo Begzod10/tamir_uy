@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,13 +12,17 @@ from app.core.security import verify_token
 from app.database import get_db
 from app.models.user import User
 
-# auto_error=False lets us handle the missing-token case ourselves
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/otp/verify", auto_error=False)
+# auto_error=False — we handle the missing-token case ourselves
+_bearer_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/otp/verify", auto_error=False)
+
 
 async def get_current_user(
-    token: Annotated[str | None, Depends(oauth2_scheme)],
+    request: Request,
     db: Annotated[AsyncSession, Depends(get_db)],
+    bearer_token: Annotated[str | None, Depends(_bearer_scheme)] = None,
 ) -> User:
+    # Cookie takes precedence over Bearer header (HttpOnly → not accessible to JS)
+    token = request.cookies.get("token") or bearer_token
     if token is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

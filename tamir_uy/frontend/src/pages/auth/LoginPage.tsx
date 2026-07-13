@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { requestOTP, verifyOTP, setToken } from "@/lib/api";
+import { requestOTP, verifyOTP } from "@/lib/api";
 import { useAuthStore } from "@/store/authStore";
 import { uz } from "@/locale/uz";
 
@@ -22,8 +22,7 @@ function isValidPhone(phone: string): boolean {
 export default function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
-  const setStoreToken = useAuthStore((s) => s.setToken);
-  const setUser = useAuthStore((s) => s.setUser);
+  const setAuthenticated = useAuthStore((s) => s.setAuthenticated);
 
   const from: string = (location.state as { from?: string })?.from ?? "/projects";
 
@@ -87,9 +86,7 @@ export default function LoginPage() {
     setLoading(true);
     try {
       const res = await verifyOTP(phone, code);
-      setToken(res.access_token);
-      setStoreToken(res.access_token);
-      setUser({ id: "", phone, name: "Foydalanuvchi" });
+      setAuthenticated(res.user);
       navigate(from, { replace: true });
     } catch {
       setError(uz.errors.otp_xato);
@@ -143,9 +140,7 @@ export default function LoginPage() {
     setLoading(true);
     try {
       const res = await verifyOTP(phone, code);
-      setToken(res.access_token);
-      setStoreToken(res.access_token);
-      setUser({ id: "", phone, name: "Foydalanuvchi" });
+      setAuthenticated(res.user);
       navigate(from, { replace: true });
     } catch {
       setError(uz.errors.otp_xato);

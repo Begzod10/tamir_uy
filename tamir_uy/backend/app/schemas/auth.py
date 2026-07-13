@@ -49,3 +49,9 @@ class UserOut(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class LoginResponse(BaseModel):
+    """Returned by /otp/verify; the JWT is delivered via HttpOnly cookie, not here."""
+
+    user: UserOut

@@ -5,14 +5,15 @@ import {
   useLocation,
   type RouteObject,
 } from "react-router-dom";
-import { getToken } from "@/lib/api";
+import { useAuthStore } from "@/store/authStore";
 import { AppShell } from "@/components/layout/AppShell";
 
 // ---------- Auth guard ----------
 
 function RequireAuth({ children }: { children: ReactNode }) {
   const location = useLocation();
-  if (!getToken()) {
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  if (!isAuthenticated) {
     return <Navigate to="/login" state={{ from: location.pathname }} replace />;
   }
   return <>{children}</>;
