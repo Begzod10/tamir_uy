@@ -1,6 +1,6 @@
 import { Suspense, useMemo, useState, useRef } from "react";
 import { Canvas } from "@react-three/fiber";
-import { OrbitControls, Environment, Sky, ContactShadows, SoftShadows } from "@react-three/drei";
+import { OrbitControls, Environment, Sky, ContactShadows, SoftShadows, Lightformer } from "@react-three/drei";
 import { EffectComposer, SSAO, Bloom, Vignette, N8AO, SMAA } from "@react-three/postprocessing";
 import { BlendFunction } from "postprocessing";
 import { useRoomStore } from "@/store/roomStore";
@@ -615,6 +615,92 @@ function RoomTrim({ room, geometry }: RoomTrimProps) {
   return <group>{trimMeshes}</group>;
 }
 
+// ─── Window-driven Lightformers ───────────────────────────────────────────────
+
+interface WindowLightsProps {
+  room: Room;
+  geometry: RoomGeometry;
+  timeOfDay: TimeOfDay;
+}
+
+function WindowLights({ room, geometry, timeOfDay }: WindowLightsProps) {
+  const W = room.width ?? 4;
+  const D = room.length ?? 4;
+  const T = 0.08;
+  const scaleM = 1 / 1000;
+
+  const cfg = TIME_CONFIG[timeOfDay];
+  // Evening: no window light; morning: warm gold; noon: white-blue
+  const lightIntensity = cfg.sunIntensity > 0 ? cfg.sunIntensity * 1.2 : 0;
+  if (lightIntensity <= 0) return null;
+
+  const lightColor = timeOfDay === "tong" ? "#FFD580" : "#D4E8FF";
+
+  const wallDefs = [
+    { id: "A", axis: "X" as const, len: W, cx: 0, cz: -D / 2, inwardZ: 1 },
+    { id: "B", axis: "Z" as const, len: D, cx: W / 2, cz: 0, inwardX: -1 },
+    { id: "C", axis: "X" as const, len: W, cx: 0, cz: D / 2, inwardZ: -1 },
+    { id: "D", axis: "Z" as const, len: D, cx: -W / 2, cz: 0, inwardX: 1 },
+  ] as const;
+
+  const lights: JSX.Element[] = [];
+
+  for (const wall of wallDefs) {
+    const wallData = geometry.walls.find((w) => w.id === wall.id);
+    const windows = (wallData?.elements ?? []).filter(
+      (e) => e.type === "deraza" || e.type === "balkon",
+    );
+    for (const win of windows) {
+      const winCenterLocal = win.position * scaleM + (win.width * scaleM) / 2 - wall.len / 2;
+      const winCenterY = win.sill_height * scaleM + (win.height * scaleM) / 2;
+      const winW = win.width * scaleM;
+      const winH = win.height * scaleM;
+
+      // Place Lightformer just outside the window opening (exterior face)
+      const offset = T / 2 + 0.05;
+      const lx = wall.axis === "X"
+        ? wall.cx + winCenterLocal
+        : wall.cx + ((wall as {inwardX?: number}).inwardX ?? 0) * -offset;
+      const lz = wall.axis === "Z"
+        ? wall.cz + winCenterLocal
+        : wall.cz + ((wall as {inwardZ?: number}).inwardZ ?? 0) * -offset;
+
+      // Rotation: face inward (toward room center)
+      const rotY = wall.axis === "X"
+        ? (wall.cz < 0 ? 0 : Math.PI)
+        : (wall.cx > 0 ? Math.PI / 2 : -Math.PI / 2);
+
+      lights.push(
+        <Lightformer
+          key={`wlight-${wall.id}-${win.position}`}
+          form="rect"
+          color={lightColor}
+          intensity={lightIntensity}
+          position={[lx, winCenterY, lz]}
+          rotation={[0, rotY, 0]}
+          scale={[winW, winH, 1]}
+          target={[0, winCenterY * 0.6, 0]}
+        />,
+      );
+
+      // Supplementary area light casting shadow through window
+      lights.push(
+        <rectAreaLight
+          key={`ralight-${wall.id}-${win.position}`}
+          color={lightColor}
+          intensity={lightIntensity * 0.8}
+          width={winW}
+          height={winH}
+          position={[lx, winCenterY, lz]}
+          rotation={[0, rotY, 0]}
+        />,
+      );
+    }
+  }
+
+  return <>{lights}</>;
+}
+
 // ─── Time of day UI ────────────────────────────────────────────────────────────
 
 function TimeOfDayControl({
@@ -756,6 +842,9 @@ function Scene({
 
       {/* Architectural trim — plinth, window frames, glass */}
       <RoomTrim room={room} geometry={geometry} />
+
+      {/* Window-driven Lightformers — natural light entering through openings */}
+      <WindowLights room={room} geometry={geometry} timeOfDay={timeOfDay} />
 
       {/* Camera controls */}
       <OrbitControls
