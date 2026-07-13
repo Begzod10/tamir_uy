@@ -4,21 +4,21 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class WallElement(BaseModel):
     type: Literal["eshik", "deraza", "balkon"]
-    width: float
-    height: float
-    sill_height: float = 0.0
+    width: float = Field(ge=0.3, le=5.0)
+    height: float = Field(ge=0.3, le=3.5)
+    sill_height: float = Field(default=0.0, ge=0.0, le=2.5)
     # Relative position along the wall: 0.0 = start, 1.0 = end
     position: float = Field(default=0.5, ge=0.0, le=1.0)
 
 
 class Wall(BaseModel):
     id: str
-    length: float = Field(gt=0)
+    length: float = Field(gt=0.5, lt=25.0)
     elements: list[WallElement] = []
 
 
@@ -29,13 +29,23 @@ class RoomGeometry(BaseModel):
 
 class RoomCreate(BaseModel):
     name: str = Field(min_length=1, max_length=100)
-    ceiling_h: float = Field(gt=0)
+    ceiling_h: float = Field(ge=1.8, le=6.0)
     geometry: RoomGeometry
+
+    @model_validator(mode="after")
+    def check_element_heights(self) -> "RoomCreate":
+        for wall in self.geometry.walls:
+            for el in wall.elements:
+                if el.height + el.sill_height > self.ceiling_h + 0.01:
+                    raise ValueError(
+                        "Eshik/deraza balandligi shift balandligidan oshib ketmoqda"
+                    )
+        return self
 
 
 class RoomUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=100)
-    ceiling_h: float | None = Field(default=None, gt=0)
+    ceiling_h: float | None = Field(default=None, ge=1.8, le=6.0)
     geometry: RoomGeometry | None = None
     surfaces: dict | None = None
     furniture_layout: list | None = None

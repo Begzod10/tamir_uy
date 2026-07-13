@@ -63,6 +63,12 @@ class Settings(BaseSettings):
     SENTRY_DSN: Optional[str] = None
 
     # ------------------------------------------------------------------ #
+    # Rate limiting / OTP caps
+    # ------------------------------------------------------------------ #
+    TRUST_PROXY_HEADERS: bool = False
+    OTP_GLOBAL_DAILY_LIMIT: int = 2000
+
+    # ------------------------------------------------------------------ #
     # Application
     # ------------------------------------------------------------------ #
     ENVIRONMENT: str = "development"

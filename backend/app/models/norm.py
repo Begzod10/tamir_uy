@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 
 from sqlalchemy import Integer, Numeric, String, Text
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -55,6 +55,15 @@ class Norm(Base):
         comment="Multiplier to account for off-cuts and waste (e.g. 1.1 = +10%)",
     )
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    params: Mapped[dict | None] = mapped_column(
+        JSONB,
+        nullable=True,
+        comment=(
+            "Flexible numeric constants: bag_price_uzs, bag_kg, rate_kg_m2, "
+            "piece_price_uzs, piece_m, roll_width_m, roll_length_m, pack_m2, "
+            "points_default, avg_run_m, slack, price_per_m_uzs, etc."
+        ),
+    )
 
     def __repr__(self) -> str:
         return (

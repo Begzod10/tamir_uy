@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+from datetime import date
 from typing import Annotated
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -12,7 +13,7 @@ import bcrypt as _bcrypt
 from app.api.v1.deps import CurrentUser
 from app.config import settings
 from app.core.cache import get_redis
-from app.core.security import create_access_token
+from app.core.security import create_access_token, create_refresh_token, verify_refresh_token
 from app.core.sms import generate_otp, send_otp, store_otp, verify_otp
 from app.database import get_db
 from app.models.user import User
@@ -29,13 +30,16 @@ logger = structlog.get_logger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
-_OTP_RATE_LIMIT = 3        # max send requests per window
+_OTP_RATE_LIMIT = 3        # max send requests per phone per window
 _OTP_RATE_WINDOW = 600     # 10 minutes
+_OTP_IP_RATE_LIMIT = 10   # max send requests per IP per hour
+_OTP_IP_RATE_WINDOW = 3600  # 1 hour
 _OTP_MAX_ATTEMPTS = 5      # max verify attempts before lockout
 _OTP_ATTEMPT_TTL = 300     # 5 minutes — same as OTP lifetime
 
 _IS_DEV = settings.ENVIRONMENT == "development"
 _COOKIE_MAX_AGE = settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
+_REFRESH_COOKIE_MAX_AGE = settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400
 
 
 def _set_auth_cookie(response: Response, token: str) -> None:
@@ -50,15 +54,67 @@ def _set_auth_cookie(response: Response, token: str) -> None:
     )
 
 
+def _set_refresh_cookie(response: Response, token: str) -> None:
+    """Set the HttpOnly refresh token cookie, scoped to the refresh endpoint only."""
+    response.set_cookie(
+        key="refresh_token",
+        value=token,
+        httponly=True,
+        secure=not _IS_DEV,
+        samesite="lax",
+        max_age=_REFRESH_COOKIE_MAX_AGE,
+        path="/api/v1/auth/refresh",
+    )
+
+
+def _get_client_ip(request: Request) -> str:
+    """Return the real client IP, respecting X-Forwarded-For when trusted."""
+    if settings.TRUST_PROXY_HEADERS:
+        forwarded_for = request.headers.get("X-Forwarded-For")
+        if forwarded_for:
+            return forwarded_for.split(",")[0].strip()
+    return request.client.host  # type: ignore[union-attr]
+
+
 @router.post(
     "/otp/request",
     status_code=status.HTTP_200_OK,
     summary="Request an OTP via SMS",
 )
-async def request_otp(body: OTPRequest) -> dict[str, str]:
-    """Rate-limited: max 3 sends per phone per 10 min."""
+async def request_otp(body: OTPRequest, request: Request) -> dict[str, str]:
+    """Rate-limited: max 3 sends per phone per 10 min, 10 per IP per hour, 2000 globally per day."""
     redis = get_redis()
 
+    # --- global daily cap ---
+    today_key = f"otp_global_daily:{date.today().isoformat()}"
+    global_count_raw = await redis.incr(today_key)
+    if global_count_raw == 1:
+        # first increment today — set TTL so the key expires at end of day
+        await redis.expire(today_key, 86400)
+    if global_count_raw > settings.OTP_GLOBAL_DAILY_LIMIT:
+        logger.error("otp_daily_limit_exceeded", count=global_count_raw)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="OTP service temporarily unavailable. Try again later.",
+        )
+
+    # --- per-IP rate limit ---
+    client_ip = _get_client_ip(request)
+    ip_key = f"otp_ip_rate:{client_ip}"
+    ip_count_raw = await redis.get(ip_key)
+    ip_count = int(ip_count_raw) if ip_count_raw else 0
+    if ip_count >= _OTP_IP_RATE_LIMIT:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many OTP requests from this IP. Please wait before trying again.",
+        )
+    ip_pipe = redis.pipeline()
+    await ip_pipe.incr(ip_key)
+    if ip_count == 0:
+        await ip_pipe.expire(ip_key, _OTP_IP_RATE_WINDOW)
+    await ip_pipe.execute()
+
+    # --- per-phone rate limit ---
     rate_key = f"otp_rate:{body.phone}"
     count_raw = await redis.get(rate_key)
     count = int(count_raw) if count_raw else 0
@@ -100,7 +156,7 @@ async def verify_otp_endpoint(
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> LoginResponse:
     """Brute-force guarded (max 5 attempts per 5-min window).
-    On success: sets an HttpOnly JWT cookie; JWT is NOT in the response body."""
+    On success: sets HttpOnly JWT cookies; JWTs are NOT in the response body."""
     redis = get_redis()
 
     attempts_key = f"otp_attempts:{body.phone}"
@@ -135,7 +191,9 @@ async def verify_otp_endpoint(
 
     logger.info("user_authenticated", user_id=str(user.id), phone=body.phone)
 
-    _set_auth_cookie(response, create_access_token(str(user.id)))
+    subject = str(user.id)
+    _set_auth_cookie(response, create_access_token(subject))
+    _set_refresh_cookie(response, create_refresh_token(subject))
 
     return LoginResponse(user=UserOut.model_validate(user))
 
@@ -150,12 +208,61 @@ async def get_me(current_user: CurrentUser) -> UserOut:
 
 
 @router.post(
+    "/refresh",
+    response_model=LoginResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Rotate access + refresh tokens using the refresh cookie",
+)
+async def refresh_tokens(
+    response: Response,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    refresh_token: Annotated[str | None, Cookie()] = None,
+) -> LoginResponse:
+    """Consume the refresh_token cookie and issue fresh access + refresh cookies.
+
+    Returns 401 if the cookie is missing, invalid, or expired.
+    """
+    if refresh_token is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Refresh token missing.",
+        )
+
+    user_id = verify_refresh_token(refresh_token)
+    if user_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired refresh token.",
+        )
+
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found.",
+        )
+
+    logger.info("tokens_rotated", user_id=user_id)
+
+    _set_auth_cookie(response, create_access_token(user_id))
+    _set_refresh_cookie(response, create_refresh_token(user_id))
+
+    return LoginResponse(user=UserOut.model_validate(user))
+
+
+@router.post(
     "/logout",
     status_code=status.HTTP_204_NO_CONTENT,
-    summary="Clear the auth cookie",
+    summary="Clear the auth and refresh cookies",
 )
 async def logout(response: Response):  # noqa: ANN201 — 204 No Content, no body
     response.delete_cookie(key="token", path="/", samesite="lax")
+    response.delete_cookie(
+        key="refresh_token",
+        path="/api/v1/auth/refresh",
+        samesite="lax",
+    )
 
 
 @router.post(
@@ -185,7 +292,11 @@ async def register(
     await db.flush()
 
     logger.info("user_registered", user_id=str(user.id), username=body.username)
-    _set_auth_cookie(response, create_access_token(str(user.id)))
+
+    subject = str(user.id)
+    _set_auth_cookie(response, create_access_token(subject))
+    _set_refresh_cookie(response, create_refresh_token(subject))
+
     return LoginResponse(user=UserOut.model_validate(user))
 
 
@@ -210,5 +321,9 @@ async def login_with_password(
         )
 
     logger.info("user_logged_in", user_id=str(user.id), username=body.username)
-    _set_auth_cookie(response, create_access_token(str(user.id)))
+
+    subject = str(user.id)
+    _set_auth_cookie(response, create_access_token(subject))
+    _set_refresh_cookie(response, create_refresh_token(subject))
+
     return LoginResponse(user=UserOut.model_validate(user))

@@ -17,7 +17,6 @@ const mockFetch = vi.fn();
 vi.stubGlobal("fetch", mockFetch);
 
 // Mock window.location so redirect assertions don't throw
-const mockLocationAssign = vi.fn();
 Object.defineProperty(window, "location", {
   writable: true,
   value: { href: "/" },
@@ -112,7 +111,7 @@ describe("apiClient — 401 retry logic", () => {
     let refreshCallCount = 0;
     let callIndex = 0;
 
-    mockFetch.mockImplementation(async (url: string, opts?: RequestInit) => {
+    mockFetch.mockImplementation(async (url: string, _opts?: RequestInit) => {
       const urlStr = String(url);
 
       if (urlStr.includes("/auth/refresh")) {
@@ -150,13 +149,6 @@ describe("apiClient — 401 retry logic", () => {
   it("does not retry or loop when the refresh endpoint itself returns 401", async () => {
     // We simulate a direct call that goes to /auth/refresh path
     // The apiClient short-circuits and calls handleUnauthorized() immediately.
-    vi.resetModules();
-    const { loginWithPassword } = await import("../api");
-
-    // We'll call an endpoint that internally hits /auth/refresh via path matching.
-    // Since apiClient checks `path === "/auth/refresh"` and calls handleUnauthorized(),
-    // we trigger this by checking that getMe() after a 401 refresh-loop doesn't loop.
-
     // Direct test: hit /auth/refresh path through the guard
     // We reimport to get a clean module, then call refresh explicitly via apiClient
     vi.resetModules();

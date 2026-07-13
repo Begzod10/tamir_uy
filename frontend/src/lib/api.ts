@@ -1,23 +1,30 @@
 const BASE_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? "/api/v1";
 
-const TOKEN_KEY = "uytamir_token";
-
-export function getToken(): string | null {
-  return localStorage.getItem(TOKEN_KEY);
-}
-
-export function setToken(token: string): void {
-  localStorage.setItem(TOKEN_KEY, token);
-}
-
-export function clearToken(): void {
-  localStorage.removeItem(TOKEN_KEY);
-}
-
 function handleUnauthorized(): never {
-  clearToken(); // clear any legacy localStorage token
   window.location.href = "/login";
   throw new Error("Unauthorized");
+}
+
+// Single in-flight refresh promise guard — prevents parallel token refreshes.
+let _refreshPromise: Promise<boolean> | null = null;
+
+async function _tryRefresh(): Promise<boolean> {
+  if (_refreshPromise !== null) {
+    return _refreshPromise;
+  }
+  const promise = (async () => {
+    try {
+      const res = await fetch(`${BASE_URL}/auth/refresh`, {
+        method: "POST",
+        credentials: "include",
+      });
+      return res.status === 200;
+    } finally {
+      _refreshPromise = null;
+    }
+  })();
+  _refreshPromise = promise;
+  return promise;
 }
 
 async function apiClient<T>(
@@ -36,7 +43,37 @@ async function apiClient<T>(
   });
 
   if (response.status === 401) {
-    handleUnauthorized();
+    // Do not recurse into the refresh endpoint itself.
+    if (path === "/auth/refresh") {
+      handleUnauthorized();
+    }
+
+    const refreshed = await _tryRefresh();
+    if (!refreshed) {
+      handleUnauthorized();
+    }
+
+    // Retry the original request once with the same options.
+    const retryResponse = await fetch(`${BASE_URL}${path}`, {
+      ...options,
+      credentials: "include",
+      headers,
+    });
+
+    if (retryResponse.status === 401) {
+      handleUnauthorized();
+    }
+
+    if (!retryResponse.ok) {
+      const errorBody = await retryResponse.text();
+      throw new Error(errorBody || `HTTP ${retryResponse.status}`);
+    }
+
+    const retryContentType = retryResponse.headers.get("Content-Type") ?? "";
+    if (retryContentType.includes("application/json")) {
+      return retryResponse.json() as Promise<T>;
+    }
+    return retryResponse.text() as unknown as T;
   }
 
   if (!response.ok) {
@@ -392,6 +429,7 @@ export interface EstimateLine {
   total_uzs: number;
   is_approximate: boolean;
   store_id: string | null;
+  category?: string;
 }
 
 export interface EstimateResponse {
@@ -415,19 +453,14 @@ export async function createEstimate(
   });
 }
 
+export async function previewEstimate(roomId: string): Promise<EstimateResponse> {
+  return apiClient<EstimateResponse>(`/rooms/${roomId}/estimate/preview`, { method: "POST" });
+}
+
 export async function getEstimatePDF(roomId: string): Promise<Blob> {
-  const token = getToken();
-
-  const headers: HeadersInit = {
-    Accept: "application/pdf",
-  };
-
-  if (token) {
-    (headers as Record<string, string>)["Authorization"] = `Bearer ${token}`;
-  }
-
   const response = await fetch(`${BASE_URL}/rooms/${roomId}/estimate/pdf`, {
-    headers,
+    credentials: "include",
+    headers: { Accept: "application/pdf" },
   });
 
   if (response.status === 401) {

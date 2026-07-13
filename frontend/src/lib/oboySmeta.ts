@@ -1,3 +1,4 @@
+// NON-AUTHORITATIVE: instant local preview only. Server smeta (previewEstimate) is the source of truth.
 import type { RoomGeometry, DesignState, WallCovering } from '@/store/roomStore'
 
 const ROLL_WIDTH_M = 1.06

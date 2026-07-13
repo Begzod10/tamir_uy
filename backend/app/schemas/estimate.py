@@ -15,6 +15,7 @@ class EstimateLine(BaseModel):
     total_uzs: int
     is_approximate: bool = False
     store_id: UUID | None = None
+    category: str = ""
 
 
 class EstimateResponse(BaseModel):

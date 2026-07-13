@@ -33,7 +33,7 @@ async def verify_otp(phone: str, code: str, redis: Redis) -> bool:
     stored = await redis.get(key)
     if stored is None:
         return False
-    if stored != code:
+    if not secrets.compare_digest(stored, code):
         return False
     await redis.delete(key)
     return True

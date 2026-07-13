@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { uz } from "@/locale/uz";
-import { clearToken, getToken } from "@/lib/api";
+import { logoutApi } from "@/lib/api";
 import { useNavigate } from "react-router-dom";
 
 const MENU_ITEMS = [
@@ -17,12 +17,17 @@ const STATS = [
 
 export default function ProfilePage() {
   const navigate = useNavigate();
-  const isLoggedIn = !!getToken();
-  const [loggedIn, setLoggedIn] = useState(isLoggedIn);
+  // Cookie-based auth: assume logged in; server 401 will redirect via apiClient.
+  const [loggedIn, setLoggedIn] = useState(true);
 
-  function handleLogout() {
-    clearToken();
+  async function handleLogout() {
+    try {
+      await logoutApi();
+    } catch {
+      // ignore errors — navigate to login regardless
+    }
     setLoggedIn(false);
+    navigate("/login");
   }
 
   return (

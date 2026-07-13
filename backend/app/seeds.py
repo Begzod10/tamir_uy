@@ -43,6 +43,7 @@ NORMS: list[dict] = [
         "coats": 2,
         "waste_factor": 1.0,
         "notes": "9 m²/litr, 2 qatlam",
+        "params": None,
     },
     {
         "material_key": "grunt",
@@ -50,6 +51,11 @@ NORMS: list[dict] = [
         "coats": 1,
         "waste_factor": 1.0,
         "notes": "0.15 kg/m²",
+        "params": {
+            "rate_kg_m2": 0.15,
+            "bag_kg": 5,
+            "bag_price_uzs": 45000,
+        },
     },
     {
         "material_key": "shpatlyovka",
@@ -57,6 +63,11 @@ NORMS: list[dict] = [
         "coats": 1,
         "waste_factor": 1.0,
         "notes": "1.2 kg/m²",
+        "params": {
+            "rate_kg_m2": 1.2,
+            "bag_kg": 25,
+            "bag_price_uzs": 85000,
+        },
     },
     {
         "material_key": "oboy",
@@ -64,6 +75,10 @@ NORMS: list[dict] = [
         "coats": 1,
         "waste_factor": 1.0,
         "notes": "rulon 1.06×10.05m",
+        "params": {
+            "roll_width_m": 1.06,
+            "roll_length_m": 10.05,
+        },
     },
     {
         "material_key": "laminat",
@@ -71,6 +86,9 @@ NORMS: list[dict] = [
         "coats": 1,
         "waste_factor": 1.07,
         "notes": "2.13 m²/quti, 7% chiqindi",
+        "params": {
+            "pack_m2": 2.13,
+        },
     },
     {
         "material_key": "plitka",
@@ -78,6 +96,82 @@ NORMS: list[dict] = [
         "coats": 1,
         "waste_factor": 1.10,
         "notes": "10% chiqindi",
+        "params": None,
+    },
+    # Plinth strip norm
+    {
+        "material_key": "plintus",
+        "coverage_per_unit": 1.0,
+        "coats": 1,
+        "waste_factor": 1.0,
+        "notes": "2.5 m dona, 35 000 UZS/dona",
+        "params": {
+            "piece_m": 2.5,
+            "piece_price_uzs": 35000,
+        },
+    },
+    # Electrical cable norm
+    {
+        "material_key": "elektr_kabel",
+        "coverage_per_unit": 1.0,
+        "coats": 1,
+        "waste_factor": 1.0,
+        "notes": "Taxminiy elektr kabel hisob normasi",
+        "params": {
+            "points_default": 8,
+            "avg_run_m": 8.0,
+            "slack": 1.15,
+            "price_per_m_uzs": 10000,
+        },
+    },
+    # Per-pattern wallpaper waste factors
+    {
+        "material_key": "oboy_tekstura",
+        "coverage_per_unit": 1.0,
+        "coats": 1,
+        "waste_factor": 1.05,
+        "notes": "Tekstura naqshli oboy uchun isrof koeffitsienti",
+        "params": None,
+    },
+    {
+        "material_key": "oboy_yolli",
+        "coverage_per_unit": 1.0,
+        "coats": 1,
+        "waste_factor": 1.10,
+        "notes": "Yo'lli naqshli oboy uchun isrof koeffitsienti",
+        "params": None,
+    },
+    {
+        "material_key": "oboy_damask",
+        "coverage_per_unit": 1.0,
+        "coats": 1,
+        "waste_factor": 1.15,
+        "notes": "Damask naqshli oboy uchun isrof koeffitsienti",
+        "params": None,
+    },
+    {
+        "material_key": "oboy_geometrik",
+        "coverage_per_unit": 1.0,
+        "coats": 1,
+        "waste_factor": 1.15,
+        "notes": "Geometrik naqshli oboy uchun isrof koeffitsienti",
+        "params": None,
+    },
+    {
+        "material_key": "oboy_gul",
+        "coverage_per_unit": 1.0,
+        "coats": 1,
+        "waste_factor": 1.15,
+        "notes": "Gul naqshli oboy uchun isrof koeffitsienti",
+        "params": None,
+    },
+    {
+        "material_key": "oboy_bolalar",
+        "coverage_per_unit": 1.0,
+        "coats": 1,
+        "waste_factor": 1.15,
+        "notes": "Bolalar naqshli oboy uchun isrof koeffitsienti",
+        "params": None,
     },
 ]
 
@@ -273,6 +367,7 @@ async def _seed_norms(session) -> None:
             norm.coats = data["coats"]
             norm.waste_factor = data["waste_factor"]
             norm.notes = data["notes"]
+            norm.params = data.get("params")
             log.info("Norm updated: %s", data["material_key"])
     await session.flush()
 

@@ -1,7 +1,7 @@
 import * as React from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { nanoid } from "nanoid";
-import { updateRoom, getMaterials } from "@/lib/api";
+import { updateRoom, getMaterials, previewEstimate } from "@/lib/api";
 import type { Room, Material } from "@/lib/api";
 import { uz } from "@/locale/uz";
 import { useRoomStore, resolveWallColor } from "@/store/roomStore";
@@ -140,6 +140,16 @@ export function DesignPanel({ room }: { room: Room }) {
 
   const wallColorForPreview = resolveWallColor(designState.wallCoverings);
   const hasOboy = Object.values(designState.wallCoverings).some((c) => c.kind === "oboy");
+
+  // Server smeta is authoritative; oboySmeta.ts is instant fallback only
+  const { data: previewData, isLoading: previewLoading } = useQuery({
+    queryKey: ["estimate-preview", room.id, designState],
+    queryFn: () => previewEstimate(room.id),
+    enabled: hasOboy && !!room.id,
+    staleTime: 0,
+    refetchInterval: false as const,
+  });
+
   const smeta = hasOboy ? computeOboyRolls(geometry, designState.wallCoverings, ceilingHeight) : null;
 
   return (
@@ -337,19 +347,42 @@ export function DesignPanel({ room }: { room: Room }) {
         </section>
 
         {/* Oboy smeta */}
-        {smeta && smeta.totalRolls > 0 && (
+        {hasOboy && (
           <section className="p-3 bg-amber-50 border border-amber-200 rounded-card">
             <h4 className="text-xs font-semibold text-amber-800 mb-1">Kerakli oboy</h4>
-            <p className="text-sm font-bold text-amber-900">
-              {smeta.totalRolls} rulon (~{smeta.totalAreaM2.toFixed(1)} m²)
-            </p>
-            <div className="mt-2 space-y-0.5">
-              {smeta.perWall.map((w) => (
-                <p key={w.wallId} className="text-xs text-amber-700">
-                  Devor {w.wallId}: {w.rolls} rulon ({w.areaM2.toFixed(1)} m²)
+            {previewLoading ? (
+              <p className="text-sm text-amber-700">Hisoblanmoqda...</p>
+            ) : previewData ? (
+              (() => {
+                const oboyLines = previewData.lines.filter((l) => l.category === "oboy");
+                const totalRolls = oboyLines.reduce((s, l) => s + l.quantity, 0);
+                return (
+                  <>
+                    <p className="text-sm font-bold text-amber-900">{totalRolls} rulon</p>
+                    <div className="mt-2 space-y-0.5">
+                      {oboyLines.map((l, i) => (
+                        <p key={i} className="text-xs text-amber-700">
+                          {l.label}: {l.quantity} rulon
+                        </p>
+                      ))}
+                    </div>
+                  </>
+                );
+              })()
+            ) : smeta && smeta.totalRolls > 0 ? (
+              <>
+                <p className="text-sm font-bold text-amber-900">
+                  {smeta.totalRolls} rulon (~{smeta.totalAreaM2.toFixed(1)} m²)
                 </p>
-              ))}
-            </div>
+                <div className="mt-2 space-y-0.5">
+                  {smeta.perWall.map((w) => (
+                    <p key={w.wallId} className="text-xs text-amber-700">
+                      Devor {w.wallId}: {w.rolls} rulon ({w.areaM2.toFixed(1)} m²)
+                    </p>
+                  ))}
+                </div>
+              </>
+            ) : null}
           </section>
         )}
 

@@ -321,7 +321,7 @@ def _wallpaper_lines(
 
         # Roll dimensions: prefer DB norm params for "oboy", fallback to constants
         oboy_norm = norm  # passed as norm parameter
-        oboy_params = oboy_norm.params if oboy_norm and oboy_norm.params else {}
+        oboy_params = getattr(oboy_norm, "params", None) or {}
         roll_width = float(oboy_params.get("roll_width_m", ROLL_WIDTH_M))
         roll_length = float(oboy_params.get("roll_length_m", ROLL_LENGTH_M))
         roll_area = roll_width * roll_length

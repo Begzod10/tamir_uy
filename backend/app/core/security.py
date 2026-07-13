@@ -54,3 +54,19 @@ def verify_token(token: str) -> Optional[str]:
         return sub
     except JWTError:
         return None
+
+
+def verify_refresh_token(token: str) -> Optional[str]:
+    """Decode *token* and return the ``sub`` claim, or *None* on failure.
+
+    Only tokens with ``type == "refresh"`` are accepted; access tokens are
+    explicitly rejected so they cannot be used as refresh credentials.
+    """
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[ALGORITHM])
+        if payload.get("type") != "refresh":
+            return None
+        sub: Optional[str] = payload.get("sub")
+        return sub
+    except JWTError:
+        return None

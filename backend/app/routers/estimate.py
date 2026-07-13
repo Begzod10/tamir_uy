@@ -100,7 +100,16 @@ async def _load_materials(
 
 
 async def _load_norms(db: Any) -> dict[str, Norm]:
-    """Return {material_key: Norm} for all rows."""
+    """Return {material_key: Norm} for all relevant norm keys.
+
+    Keys used by the smeta engine (Phase 4):
+      "grunt", "shpatlyovka", "oboy", "laminat", "plitka", "plintus",
+      "elektr_kabel", "oboy_tekstura", "oboy_yolli", "oboy_damask",
+      "oboy_geometrik", "oboy_gul", "oboy_bolalar"
+
+    Loading all rows is intentional — the table is small and new keys are
+    picked up automatically without code changes.
+    """
     result = await db.execute(select(Norm))
     return {n.material_key: n for n in result.scalars().all()}
 
@@ -116,6 +125,7 @@ def _computed_to_schema_lines(lines: list[ComputedLine]) -> list[EstimateLine]:
             total_uzs=ln.subtotal_uzs,
             is_approximate=ln.is_approximate,
             store_id=None,
+            category=ln.category,
         )
         for ln in lines
     ]
@@ -124,6 +134,45 @@ def _computed_to_schema_lines(lines: list[ComputedLine]) -> list[EstimateLine]:
 def _lines_to_jsonb(lines: list[ComputedLine]) -> list[dict]:
     """Serialise ComputedLine list to plain dicts for JSONB storage."""
     return [dataclasses.asdict(ln) for ln in lines]
+
+
+# ---------------------------------------------------------------------------
+# POST /rooms/{room_id}/estimate/preview  (live preview, no persistence)
+# ---------------------------------------------------------------------------
+
+@router.post(
+    "/estimate/preview",
+    response_model=EstimateResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Compute live smeta preview without persisting",
+)
+async def preview_estimate(
+    room_id: uuid.UUID,
+    current_user: CurrentUser,
+    db: DbSession,
+) -> EstimateResponse:
+    """Compute a smeta for the room and return it without creating an Estimate row.
+
+    Intended for real-time UI previews where the user is still configuring their
+    design.  The returned ``id`` is a transient UUID and ``created_at`` is the
+    current UTC time; neither value is stored in the database.
+    """
+    room = await _load_room_for_user(room_id, current_user.id, db)
+    materials_map = await _load_materials(room, db)
+    norms_map = await _load_norms(db)
+
+    computed: ComputedEstimate = compute_estimate(room, materials_map, norms_map)
+
+    return EstimateResponse(
+        id=uuid.uuid4(),
+        room_id=room.id,
+        lines=_computed_to_schema_lines(computed.lines),
+        total_uzs=computed.total_uzs,
+        total_min=computed.total_min,
+        total_max=computed.total_max,
+        created_at=datetime.now(timezone.utc),
+        has_electrical=computed.has_electrical,
+    )
 
 
 # ---------------------------------------------------------------------------
