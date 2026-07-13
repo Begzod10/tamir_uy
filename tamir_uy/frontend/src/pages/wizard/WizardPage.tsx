@@ -664,22 +664,23 @@ export default function WizardPage() {
     setRoomId(localId)
     setSaving(true)
     try {
-      const apt = await createApartment({
-        name: 'Mening kvartiram',
-        total_area: computeFloorArea(geometry) / 1e6,
-      })
-      const wallAm = wallA.length / 1000
-      const wallBm = wallB.length / 1000
+      const apt = await createApartment({ name: 'Mening kvartiram' })
       const room = await createRoom(apt.id, {
         name: 'Xona',
-        room_type: 'mehmonxona',
-        area: wallAm * wallBm,
-        ceiling_height: ceilingHeight / 1000,
-        width: wallBm,
-        length: wallAm,
-        num_doors: geometry.walls.reduce((s, w) => s + w.elements.filter((e) => e.type === 'eshik').length, 0),
-        num_windows: geometry.walls.reduce((s, w) => s + w.elements.filter((e) => e.type === 'deraza').length, 0),
-        has_balcony: geometry.walls.some((w) => w.elements.some((e) => e.type === 'balkon')),
+        ceiling_h: ceilingHeight / 1000,
+        geometry: {
+          walls: geometry.walls.map((w) => ({
+            id: w.id,
+            length: w.length / 1000,
+            elements: w.elements.map((e) => ({
+              type: e.type,
+              width: e.width / 1000,
+              height: e.height / 1000,
+              sill_height: (e.sill_height ?? 0) / 1000,
+              position: e.position > 0 ? Math.min(1, e.position / w.length) : 0.5,
+            })),
+          })),
+        },
       })
       setRoomId(room.id)  // upgrade to real server ID if save succeeds
       // Draft fulfilled — clean up

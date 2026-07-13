@@ -31,6 +31,22 @@ export interface AppliedSurfaces {
   floor?: string
 }
 
+export type ElectricalType = 'switch1' | 'switch2' | 'socket1' | 'socket2' | 'socket_media' | 'panel'
+
+export interface PlacedElectrical {
+  id: string
+  type: ElectricalType
+  wallId: 'A' | 'B' | 'C' | 'D'
+  positionMm: number
+  heightMm: number
+}
+
+export interface PlacedLight {
+  id: string
+  xMm: number  // from left wall
+  zMm: number  // from back wall
+}
+
 export interface PlacedFurniture {
   id: string
   furniture_id: string
@@ -104,6 +120,8 @@ interface RoomStore {
   geometry: RoomGeometry
   surfaces: AppliedSurfaces
   furniture: PlacedFurniture[]
+  electricals: PlacedElectrical[]
+  lights: PlacedLight[]
   userFurniture: UserFurnitureEntry[]
   isDirty: boolean
   wizardStep: number
@@ -123,6 +141,12 @@ interface RoomStore {
   moveFurniture(id: string, x: number, y: number, rotation: number): void
   removeFurniture(id: string): void
   setFurnitureColors(id: string, overrides: Record<string, string>): void
+  addElectrical(e: PlacedElectrical): void
+  moveElectrical(id: string, positionMm: number): void
+  removeElectrical(id: string): void
+  addLight(l: PlacedLight): void
+  removeLight(id: string): void
+  clearLights(): void
   addUserFurniture(entry: UserFurnitureEntry): void
   removeUserFurniture(id: string): void
   setUserFurniturePath(id: string, path: string): void
@@ -165,6 +189,8 @@ export const useRoomStore = create<RoomStore>()(
   geometry: defaultGeometry(),
   surfaces: {},
   furniture: [],
+  electricals: [],
+  lights: [],
   userFurniture: [],
   isDirty: false,
   wizardStep: 0,
@@ -309,6 +335,28 @@ export const useRoomStore = create<RoomStore>()(
     }))
   },
 
+  addElectrical(e) {
+    set((state) => ({ electricals: [...state.electricals, e], isDirty: true }))
+  },
+  moveElectrical(id, positionMm) {
+    set((state) => ({
+      electricals: state.electricals.map(e => e.id === id ? { ...e, positionMm } : e),
+      isDirty: true,
+    }))
+  },
+  removeElectrical(id) {
+    set((state) => ({ electricals: state.electricals.filter((e) => e.id !== id), isDirty: true }))
+  },
+  addLight(l) {
+    set((state) => ({ lights: [...state.lights, l], isDirty: true }))
+  },
+  removeLight(id) {
+    set((state) => ({ lights: state.lights.filter((l) => l.id !== id), isDirty: true }))
+  },
+  clearLights() {
+    set({ lights: [], isDirty: true })
+  },
+
   addUserFurniture(entry) {
     set((state) => ({ userFurniture: [...state.userFurniture, entry] }))
   },
@@ -344,6 +392,10 @@ export const useRoomStore = create<RoomStore>()(
       designState?: DesignState
       name?: string
       roomId?: string
+      furniture?: PlacedFurniture[]
+      electricals?: PlacedElectrical[]
+      lights?: PlacedLight[]
+      userFurniture?: UserFurnitureEntry[]
     }
     set({
       ceilingHeight: s.ceilingHeight ?? 2700,
@@ -352,6 +404,10 @@ export const useRoomStore = create<RoomStore>()(
       designState: s.designState ?? DEFAULT_DESIGN_STATE,
       name: s.name ?? 'Xona',
       roomId: s.roomId ?? null,
+      furniture: s.furniture ?? [],
+      electricals: s.electricals ?? [],
+      lights: s.lights ?? [],
+      userFurniture: s.userFurniture ?? [],
       isDirty: false,
     })
   },
@@ -391,6 +447,8 @@ export const useRoomStore = create<RoomStore>()(
       geometry: defaultGeometry(),
       surfaces: {},
       furniture: [],
+      electricals: [],
+      lights: [],
       userFurniture: [],
       isDirty: false,
       wizardStep: 0,
@@ -426,6 +484,8 @@ export const useRoomStore = create<RoomStore>()(
         wizardStep: state.wizardStep,
         name: state.name,
         furniture: state.furniture,
+        electricals: state.electricals,
+        lights: state.lights,
         // Persist metadata but clear modelPath (blob URLs don't survive refresh)
         userFurniture: state.userFurniture.map((f) => ({ ...f, modelPath: '' })),
       }),

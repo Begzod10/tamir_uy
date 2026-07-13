@@ -23,13 +23,16 @@ async def get_current_user(
     token: Annotated[str | None, Depends(oauth2_scheme)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> User:
-    # Development shortcut: no token → use the first user in the DB
+    # Development shortcut: no token → use (or create) a guest user
     if token is None:
         if _IS_DEV:
             result = await db.execute(select(User).limit(1))
             user = result.scalar_one_or_none()
-            if user is not None:
-                return user
+            if user is None:
+                user = User(phone="+998000000000", name="Guest")
+                db.add(user)
+                await db.flush()
+            return user
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Not authenticated",

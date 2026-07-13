@@ -272,9 +272,9 @@ function RoomGeometry({
   selectedSurface,
   onSurfaceClick,
 }: RoomGeometryProps) {
-  const W = room.width;
-  const D = room.length;
-  const H = room.ceiling_height;
+  const W = room.width ?? 0;
+  const D = room.length ?? 0;
+  const H = room.ceiling_height ?? 2.7;
   const T = 0.08; // wall thickness
 
   function wallColor(id: SurfaceId, def: string): string {
@@ -457,7 +457,7 @@ function Scene({
       {/* Interior lamp (evening mode) */}
       {cfg.showInteriorLight && (
         <pointLight
-          position={[0, room.ceiling_height - 0.3, 0]}
+          position={[0, (room.ceiling_height ?? 2.7) - 0.3, 0]}
           intensity={2.0}
           color="#FFE8C0"
           distance={12}
@@ -486,7 +486,7 @@ function Scene({
         dampingFactor={0.05}
         minDistance={1}
         maxDistance={20}
-        target={[0, room.ceiling_height / 3, 0]}
+        target={[0, (room.ceiling_height ?? 2.7) / 3, 0]}
       />
     </>
   );
@@ -546,7 +546,7 @@ export default function ThreeDStudio({ room }: ThreeDStudioProps) {
         <Canvas
           shadows
           camera={{
-            position: [room.width * 0.7, room.ceiling_height * 0.9, room.length * 1.4],
+            position: [(room.width ?? 0) * 0.7, (room.ceiling_height ?? 2.7) * 0.9, (room.length ?? 0) * 1.4],
             fov: 58,
             near: 0.1,
             far: 100,

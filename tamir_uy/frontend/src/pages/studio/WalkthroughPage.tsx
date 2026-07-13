@@ -135,7 +135,7 @@ export default function WalkthroughPage() {
         <color attach="background" args={["#E8E4DC"]} />
 
         <Suspense fallback={null}>
-          <SceneLighting width={room.width} depth={room.length} height={room.ceiling_height} />
+          <SceneLighting width={room.width ?? 0} depth={room.length ?? 0} height={room.ceiling_height ?? 2.7} />
           <Environment preset="apartment" environmentIntensity={0.3} />
 
           <RoomScene
@@ -157,8 +157,8 @@ export default function WalkthroughPage() {
           />
 
           <MovementController
-            roomW={room.width}
-            roomD={room.length}
+            roomW={room.width ?? 0}
+            roomD={room.length ?? 0}
             controlsRef={controlsRef}
           />
         </Suspense>

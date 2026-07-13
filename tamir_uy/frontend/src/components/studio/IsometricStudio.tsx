@@ -63,9 +63,9 @@ function useRunningTotal(
   room: Room,
 ): number {
   return useMemo(() => {
-    const w = room.width;
-    const l = room.length;
-    const h = room.ceiling_height;
+    const w = room.width ?? 0;
+    const l = room.length ?? 0;
+    const h = room.ceiling_height ?? 2.7;
 
     const areas: Record<SurfaceId, number> = {
       A: w * h,
@@ -282,9 +282,9 @@ function IsometricSVG({
   selectedSurface,
   onSurfaceClick,
 }: IsometricSVGProps) {
-  const w = Math.max(room.width, 2);
-  const l = Math.max(room.length, 2);
-  const h = room.ceiling_height;
+  const w = Math.max(room.width ?? 0, 2);
+  const l = Math.max(room.length ?? 0, 2);
+  const h = room.ceiling_height ?? 2.7;
 
   // Isometric projection constants
   const scale = 60;
@@ -510,9 +510,9 @@ export default function IsometricStudio({ room }: IsometricStudioProps) {
     setMaterialMap((prev) => new Map(prev).set(material.id, material));
 
     // Compute area for the cost chip
-    const w = room.width;
-    const l = room.length;
-    const h = room.ceiling_height;
+    const w = room.width ?? 0;
+    const l = room.length ?? 0;
+    const h = room.ceiling_height ?? 2.7;
     const areaMap: Record<SurfaceId, number> = {
       A: w * h,
       B: l * h,

@@ -11,7 +11,7 @@ import {
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import { useOutletContext } from "react-router-dom";
 import { useRoomStore, resolveWallCovering } from "@/store/roomStore";
-import type { PlacedFurniture, UserFurnitureEntry } from "@/store/roomStore";
+import type { PlacedFurniture, UserFurnitureEntry, PlacedLight, PlacedElectrical } from "@/store/roomStore";
 import { DesignPanel } from "@/components/studio/DesignPanel";
 import type { RoomGeometry, DesignState, WallCovering, WallElement } from "@/store/roomStore";
 import { createOboyTexture } from "@/lib/oboyPatterns";
@@ -50,49 +50,116 @@ const FLOOR_COLORS: Record<string, string> = {
 function WoodFloor({ width, depth, floorType }: { width: number; depth: number; floorType: string }) {
   const floorColor = FLOOR_COLORS[floorType] ?? FLOOR_COLORS.parquet;
 
-  const texture = useMemo(() => {
+  const texture = useMemo<THREE.CanvasTexture>(() => {
     const canvas = document.createElement("canvas");
-    canvas.width = 512;
-    canvas.height = 512;
+    const W = 512;
+    canvas.width = W;
+    canvas.height = W;
     const ctx = canvas.getContext("2d")!;
 
-    ctx.fillStyle = floorColor;
-    ctx.fillRect(0, 0, 512, 512);
+    // Each canvas represents a real-world unit size.
+    // tex.repeat ensures one canvas = that physical size in metres.
+    let repeatX: number;
+    let repeatY: number;
 
-    const plankH = 64;
-    for (let y = 0; y < 512; y += plankH) {
-      ctx.fillStyle = "rgba(0,0,0,0.06)";
-      ctx.fillRect(0, y, 512, 1.5);
-      ctx.strokeStyle = "rgba(0,0,0,0.04)";
-      ctx.lineWidth = 0.5;
-      for (let g = 0; g < 6; g++) {
-        const gy = y + 8 + g * 8;
-        ctx.beginPath();
-        ctx.moveTo(0, gy + Math.sin(g * 1.7) * 3);
-        ctx.bezierCurveTo(128, gy + 2, 384, gy - 2, 512, gy + Math.cos(g) * 2);
-        ctx.stroke();
-      }
-    }
-    for (let y = 0; y < 512; y += plankH * 2) {
-      ctx.fillStyle = "rgba(0,0,0,0.05)";
-      ctx.fillRect(256, y, 1.5, plankH);
-      ctx.fillRect(0, y + plankH, 1.5, plankH);
-    }
-
-    // Tile overlay for non-parquet types
     if (floorType === "tile") {
-      ctx.strokeStyle = "rgba(255,255,255,0.5)";
-      ctx.lineWidth = 2;
-      for (let x = 0; x <= 512; x += 64) ctx.beginPath(), ctx.moveTo(x, 0), ctx.lineTo(x, 512), ctx.stroke();
-      for (let y = 0; y <= 512; y += 64) ctx.beginPath(), ctx.moveTo(0, y), ctx.lineTo(512, y), ctx.stroke();
+      // Canvas = one 600×600mm porcelain tile
+      const tileM = 0.6;
+      const grout = 7; // px ≈ 8mm grout joint
+      ctx.fillStyle = "#C4C3BB";
+      ctx.fillRect(0, 0, W, W);
+      ctx.fillStyle = floorColor;
+      ctx.fillRect(grout, grout, W - 2 * grout, W - 2 * grout);
+      ctx.fillStyle = "rgba(0,0,0,0.025)";
+      ctx.fillRect(grout, grout, (W - 2 * grout) * 0.5, (W - 2 * grout) * 0.5);
+      ctx.fillStyle = "rgba(255,255,255,0.04)";
+      ctx.fillRect(grout + (W - 2 * grout) * 0.5, grout, (W - 2 * grout) * 0.5, (W - 2 * grout) * 0.5);
+      repeatX = width / tileM;
+      repeatY = depth / tileM;
+
+    } else if (floorType === "parquet") {
+      // Canvas = 600×600mm section, 8 planks of 75mm each (run along Y axis)
+      const unitM = 0.6;
+      const plankW = W / 8; // 64px ≈ 75mm
+      ctx.fillStyle = floorColor;
+      ctx.fillRect(0, 0, W, W);
+      for (let i = 0; i < 8; i++) {
+        ctx.fillStyle = i % 2 === 0 ? "rgba(0,0,0,0.04)" : "rgba(255,255,255,0.03)";
+        ctx.fillRect(i * plankW, 0, plankW, W);
+        ctx.strokeStyle = "rgba(0,0,0,0.18)";
+        ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.moveTo(i * plankW, 0); ctx.lineTo(i * plankW, W); ctx.stroke();
+        ctx.strokeStyle = "rgba(0,0,0,0.05)";
+        ctx.lineWidth = 0.5;
+        for (let g = 1; g < 7; g++) {
+          const gy = (W / 7) * g;
+          ctx.beginPath();
+          ctx.moveTo(i * plankW, gy + Math.sin(i * 1.7 + g) * 4);
+          ctx.quadraticCurveTo(i * plankW + plankW * 0.5, gy + Math.cos(g) * 2, (i + 1) * plankW, gy + Math.sin(i + g) * 3);
+          ctx.stroke();
+        }
+        if (i % 2 === 0) {
+          ctx.strokeStyle = "rgba(0,0,0,0.13)";
+          ctx.lineWidth = 1;
+          ctx.beginPath(); ctx.moveTo(i * plankW + 2, W / 2); ctx.lineTo((i + 1) * plankW - 2, W / 2); ctx.stroke();
+        }
+      }
+      repeatX = width / unitM;
+      repeatY = depth / unitM;
+
+    } else if (floorType === "laminate") {
+      // Canvas = 1200×1200mm section, 6 planks of 200mm each (run along Y axis)
+      const unitM = 1.2;
+      const plankW = W / 6; // ≈ 85px = 200mm
+      ctx.fillStyle = floorColor;
+      ctx.fillRect(0, 0, W, W);
+      for (let i = 0; i < 6; i++) {
+        ctx.fillStyle = i % 2 === 0 ? "rgba(0,0,0,0.03)" : "rgba(255,255,255,0.03)";
+        ctx.fillRect(i * plankW, 0, plankW, W);
+        ctx.strokeStyle = "rgba(0,0,0,0.15)";
+        ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.moveTo(i * plankW, 0); ctx.lineTo(i * plankW, W); ctx.stroke();
+        ctx.strokeStyle = "rgba(0,0,0,0.04)";
+        ctx.lineWidth = 0.5;
+        for (let g = 1; g < 9; g++) {
+          const gy = (W / 9) * g;
+          ctx.beginPath();
+          ctx.moveTo(i * plankW, gy + Math.sin(i * 2.3 + g) * 3);
+          ctx.lineTo((i + 1) * plankW, gy + Math.cos(i + g * 0.7) * 3);
+          ctx.stroke();
+        }
+        ctx.strokeStyle = "rgba(0,0,0,0.12)";
+        ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(i * plankW + 2, W / 2); ctx.lineTo((i + 1) * plankW - 2, W / 2); ctx.stroke();
+      }
+      repeatX = width / unitM;
+      repeatY = depth / unitM;
+
+    } else {
+      // Concrete — canvas = 1×1m section with deterministic aggregate texture
+      const unitM = 1.0;
+      ctx.fillStyle = floorColor;
+      ctx.fillRect(0, 0, W, W);
+      for (let row = 0; row < W; row += 8) {
+        for (let col = 0; col < W; col += 8) {
+          const v = ((col * 127 + row * 31 + col * row) % 100) / 100;
+          ctx.fillStyle = `rgba(0,0,0,${(v * 0.06).toFixed(3)})`;
+          ctx.fillRect(col, row, 8, 8);
+        }
+      }
+      repeatX = width / unitM;
+      repeatY = depth / unitM;
     }
 
     const tex = new THREE.CanvasTexture(canvas);
     tex.wrapS = THREE.RepeatWrapping;
     tex.wrapT = THREE.RepeatWrapping;
-    tex.repeat.set(width * 2.5, depth * 2.5);
+    tex.repeat.set(repeatX, repeatY);
     return tex;
   }, [width, depth, floorType, floorColor]);
+
+  // Release GPU memory when texture is replaced or component unmounts
+  useEffect(() => () => { texture.dispose() }, [texture]);
 
   return (
     <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.001, 0]} receiveShadow>
@@ -465,36 +532,275 @@ function computeDiskLightPositions(W: number, D: number): [number, number][] {
   return positions;
 }
 
-function CeilingLights({ width, depth, height }: { width: number; depth: number; height: number }) {
-  const positions = useMemo(() => computeDiskLightPositions(width, depth), [width, depth]);
-  const lightIntensity = Math.max(0.15, 1.8 / positions.length);
-
+function CeilingLightDisk({ x, z, height, intensity }: { x: number; z: number; height: number; intensity: number }) {
   return (
     <group>
-      {positions.map(([x, z], i) => (
-        <group key={i}>
-          {/* Housing ring recessed into ceiling */}
-          <mesh position={[x, height - 0.009, z]}>
-            <cylinderGeometry args={[0.068, 0.062, 0.018, 24]} />
-            <meshStandardMaterial color="#BFBBB0" metalness={0.65} roughness={0.28} />
-          </mesh>
-          {/* Emissive lens facing down into room */}
-          <mesh position={[x, height - 0.002, z]} rotation={[Math.PI / 2, 0, 0]}>
-            <circleGeometry args={[0.05, 24]} />
-            <meshStandardMaterial color="#FFF9EE" emissive="#FFE488" emissiveIntensity={4} roughness={1} />
-          </mesh>
-          {/* Point light — warm white, decays with distance */}
-          <pointLight
-            position={[x, height - 0.06, z]}
-            color="#FFF2C8"
-            intensity={lightIntensity}
-            distance={height * 3.5}
-            decay={2}
-          />
-        </group>
+      {/* Housing ring recessed into ceiling */}
+      <mesh position={[x, height - 0.009, z]}>
+        <cylinderGeometry args={[0.068, 0.062, 0.018, 24]} />
+        <meshStandardMaterial color="#BFBBB0" metalness={0.65} roughness={0.28} />
+      </mesh>
+      {/* Emissive lens — 5500 K daylight white */}
+      <mesh position={[x, height - 0.002, z]} rotation={[Math.PI / 2, 0, 0]}>
+        <circleGeometry args={[0.05, 24]} />
+        <meshStandardMaterial color="#F0F8FF" emissive="#C8E8FF" emissiveIntensity={5} roughness={1} />
+      </mesh>
+      {/* Point light — 5500 K cool white */}
+      <pointLight
+        position={[x, height - 0.06, z]}
+        color="#D8EEFF"
+        intensity={intensity}
+        distance={height * 4}
+        decay={2}
+      />
+    </group>
+  );
+}
+
+function CeilingLights({
+  width, depth, height,
+  userLights,
+}: {
+  width: number; depth: number; height: number;
+  userLights: PlacedLight[];
+}) {
+  const autoPositions = useMemo(
+    () => computeDiskLightPositions(width, depth),
+    [width, depth],
+  );
+
+  // When user has placed lights, use those; otherwise fall back to auto-grid
+  if (userLights.length > 0) {
+    const intensity = Math.max(0.15, 1.8 / userLights.length);
+    return (
+      <group>
+        {userLights.map((l) => {
+          // xMm / zMm are in room-local coords (0..W*1000, 0..D*1000)
+          // 3D scene: center at origin, so shift by -W/2, -D/2
+          const x = l.xMm / 1000 - width / 2;
+          const z = l.zMm / 1000 - depth / 2;
+          return <CeilingLightDisk key={l.id} x={x} z={z} height={height} intensity={intensity} />;
+        })}
+      </group>
+    );
+  }
+
+  const intensity = Math.max(0.15, 1.8 / autoPositions.length);
+  return (
+    <group>
+      {autoPositions.map(([x, z], i) => (
+        <CeilingLightDisk key={i} x={x} z={z} height={height} intensity={intensity} />
       ))}
     </group>
   );
+}
+
+// ─── Wall-mounted electrical devices ─────────────────────────────────────────
+
+const ELECTRICAL_DIMS: Record<string, { w: number; h: number }> = {
+  switch1:      { w: 0.08, h: 0.08 },
+  switch2:      { w: 0.14, h: 0.08 },
+  socket1:      { w: 0.08, h: 0.08 },
+  socket2:      { w: 0.14, h: 0.08 },
+  socket_media: { w: 0.18, h: 0.08 },
+  // panel is a cabinet, not a thin faceplate
+  panel:        { w: 0.40, h: 0.50 },
+}
+
+// ─── Draggable electrical items (3D) ─────────────────────────────────────────
+
+function getWallPlane(wallId: 'A' | 'B' | 'C' | 'D', W: number, D: number): THREE.Plane {
+  switch (wallId) {
+    case 'A': return new THREE.Plane(new THREE.Vector3(0, 0, 1),  D / 2)
+    case 'C': return new THREE.Plane(new THREE.Vector3(0, 0, -1), D / 2)
+    case 'D': return new THREE.Plane(new THREE.Vector3(1, 0, 0),  W / 2)
+    case 'B': return new THREE.Plane(new THREE.Vector3(-1, 0, 0), W / 2)
+  }
+}
+
+function DraggableElectricalItem({
+  el, W, D, isDragging, dragPosMmRef, onPointerDown,
+}: {
+  el: PlacedElectrical
+  W: number; D: number
+  isDragging: boolean
+  dragPosMmRef: React.MutableRefObject<number>
+  onPointerDown: (e: ThreeEvent<PointerEvent>) => void
+}) {
+  const groupRef = useRef<THREE.Group>(null)
+  const isPanel = el.type === 'panel'
+  const dim = ELECTRICAL_DIMS[el.type] ?? { w: 0.08, h: 0.08 }
+  const depth = isPanel ? 0.12 : 0.018
+  const T = 0.004
+  const isSwitch = el.type.startsWith('switch')
+  const isH = el.wallId === 'A' || el.wallId === 'C'
+
+  // Compute static position (the axis that stays fixed during drag)
+  const { px, py, pz, ry } = useMemo(() => {
+    const cy = el.heightMm / 1000 + dim.h / 2
+    const p = el.positionMm / 1000
+    switch (el.wallId) {
+      case 'A': return { px: p - W / 2, py: cy, pz: -(D / 2) + depth / 2 + T, ry: 0 }
+      case 'C': return { px: p - W / 2, py: cy, pz: D / 2 - depth / 2 - T, ry: Math.PI }
+      case 'D': return { px: -(W / 2) + depth / 2 + T, py: cy, pz: p - D / 2, ry: Math.PI / 2 }
+      case 'B': return { px: W / 2 - depth / 2 - T, py: cy, pz: p - D / 2, ry: -Math.PI / 2 }
+    }
+  }, [el, W, D, dim.h, depth])
+
+  useFrame(() => {
+    if (!isDragging || !groupRef.current) return
+    const pos = dragPosMmRef.current / 1000
+    if (isH) groupRef.current.position.x = pos - W / 2
+    else     groupRef.current.position.z = pos - D / 2
+  })
+
+  if (isPanel) {
+    return (
+      <group ref={groupRef} position={[px, py, pz]} rotation={[0, ry, 0]}>
+        <mesh castShadow
+          onPointerDown={onPointerDown}
+          onPointerEnter={() => { document.body.style.cursor = 'grab' }}
+          onPointerLeave={() => { if (!isDragging) document.body.style.cursor = '' }}>
+          <boxGeometry args={[dim.w, dim.h, depth]} />
+          <meshStandardMaterial color="#E8E4DC" roughness={0.6} metalness={0.1}
+            emissive={isDragging ? '#4466AA' : '#000'} emissiveIntensity={isDragging ? 0.08 : 0}/>
+        </mesh>
+        <mesh position={[0, 0, depth / 2 + 0.002]}>
+          <boxGeometry args={[dim.w - 0.02, dim.h - 0.02, 0.01]} />
+          <meshStandardMaterial color="#1B3784" roughness={0.4} metalness={0.15} />
+        </mesh>
+        {[-0.08, 0, 0.08].map((rowY, ri) =>
+          [-0.08, 0.08].map((colX, ci) => (
+            <mesh key={`${ri}-${ci}`} position={[colX, rowY, depth / 2 + 0.008]}>
+              <boxGeometry args={[0.06, 0.04, 0.006]} />
+              <meshStandardMaterial color="#F0F0F0" roughness={0.5} />
+            </mesh>
+          ))
+        )}
+        <mesh position={[dim.w / 2 - 0.03, 0, depth / 2 + 0.012]}>
+          <boxGeometry args={[0.012, 0.04, 0.008]} />
+          <meshStandardMaterial color="#C0B8A8" metalness={0.6} roughness={0.3} />
+        </mesh>
+      </group>
+    )
+  }
+
+  return (
+    <group ref={groupRef} position={[px, py, pz]} rotation={[0, ry, 0]}>
+      <mesh castShadow
+        onPointerDown={onPointerDown}
+        onPointerEnter={() => { document.body.style.cursor = 'grab' }}
+        onPointerLeave={() => { if (!isDragging) document.body.style.cursor = '' }}>
+        <boxGeometry args={[dim.w, dim.h, depth]} />
+        <meshStandardMaterial color="#F5F5F0" roughness={0.5} metalness={0.05}
+          emissive={isDragging ? '#4466AA' : '#000'} emissiveIntensity={isDragging ? 0.1 : 0}/>
+      </mesh>
+      {isSwitch ? (
+        <mesh position={[0, 0.005, depth / 2 + 0.001]}>
+          <boxGeometry args={[dim.w * 0.7, dim.h * 0.55, 0.004]} />
+          <meshStandardMaterial color="#1B3784" roughness={0.4} metalness={0.1} />
+        </mesh>
+      ) : (
+        <>
+          <mesh position={[-0.012, 0.008, depth / 2 + 0.001]}>
+            <cylinderGeometry args={[0.004, 0.004, 0.003, 12]} />
+            <meshStandardMaterial color="#1B3784" />
+          </mesh>
+          <mesh position={[0.012, 0.008, depth / 2 + 0.001]}>
+            <cylinderGeometry args={[0.004, 0.004, 0.003, 12]} />
+            <meshStandardMaterial color="#1B3784" />
+          </mesh>
+        </>
+      )}
+    </group>
+  )
+}
+
+function DraggableElectricalModels({
+  controlsRef, W, D,
+}: {
+  controlsRef: React.RefObject<OrbitControlsImpl | null>
+  W: number; D: number
+}) {
+  const electricals = useRoomStore(s => s.electricals)
+  const moveElectrical = useRoomStore(s => s.moveElectrical)
+  const [draggingId, setDraggingId] = useState<string | null>(null)
+  const draggingIdRef = useRef<string | null>(null)
+  const dragPosMmRef = useRef(0)
+  const electricalsRef = useRef(electricals)
+  electricalsRef.current = electricals
+
+  const { camera, gl } = useThree()
+  const raycaster = useMemo(() => new THREE.Raycaster(), [])
+  const hitPoint = useRef(new THREE.Vector3())
+
+  function startDrag(el: PlacedElectrical, e: ThreeEvent<PointerEvent>) {
+    e.stopPropagation()
+    dragPosMmRef.current = el.positionMm
+    draggingIdRef.current = el.id
+    setDraggingId(el.id)
+    if (controlsRef.current) controlsRef.current.enabled = false
+    document.body.style.cursor = 'grabbing'
+  }
+
+  function commitDrag() {
+    const id = draggingIdRef.current
+    if (!id) return
+    moveElectrical(id, Math.round(dragPosMmRef.current))
+    draggingIdRef.current = null
+    setDraggingId(null)
+    if (controlsRef.current) controlsRef.current.enabled = true
+    document.body.style.cursor = ''
+  }
+
+  useEffect(() => {
+    if (!draggingId) return
+    const el = electricalsRef.current.find(e => e.id === draggingId)
+    if (!el) return
+
+    const wallPlane = getWallPlane(el.wallId, W, D)
+    const isH = el.wallId === 'A' || el.wallId === 'C'
+    const wallLenMm = isH ? W * 1000 : D * 1000
+    const canvas = gl.domElement
+
+    const handleMove = (e: PointerEvent) => {
+      const rect = canvas.getBoundingClientRect()
+      const ndc = new THREE.Vector2(
+        ((e.clientX - rect.left) / rect.width) * 2 - 1,
+        -((e.clientY - rect.top) / rect.height) * 2 + 1,
+      )
+      raycaster.setFromCamera(ndc, camera)
+      if (!raycaster.ray.intersectPlane(wallPlane, hitPoint.current)) return
+      let posMm = isH
+        ? (hitPoint.current.x + W / 2) * 1000
+        : (hitPoint.current.z + D / 2) * 1000
+      posMm = Math.max(100, Math.min(wallLenMm - 100, posMm))
+      dragPosMmRef.current = posMm
+    }
+
+    canvas.addEventListener('pointermove', handleMove)
+    window.addEventListener('pointerup', commitDrag)
+    return () => {
+      canvas.removeEventListener('pointermove', handleMove)
+      window.removeEventListener('pointerup', commitDrag)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draggingId, W, D])
+
+  if (electricals.length === 0) return null
+  return (
+    <>
+      {electricals.map(el => (
+        <DraggableElectricalItem
+          key={el.id}
+          el={el} W={W} D={D}
+          isDragging={draggingId === el.id}
+          dragPosMmRef={dragPosMmRef}
+          onPointerDown={(e) => startDrag(el, e)}
+        />
+      ))}
+    </>
+  )
 }
 
 // ─── Corner shadow accents ────────────────────────────────────────────────────
@@ -944,20 +1250,21 @@ export function RoomScene({
   topView,
   designState,
   showContactShadows,
+  userLights,
 }: {
   room: Room;
   geometry: RoomGeometry;
   topView: boolean;
   designState: DesignState;
   showContactShadows: boolean;
+  userLights?: PlacedLight[];
 }) {
-  const W = room.width;
-  const D = room.length;
-  const H = room.ceiling_height;
-  const T = 0.25; // 25 cm wall thickness
-
   const wallA = geometry.walls.find((w) => w.id === "A");
   const wallB = geometry.walls.find((w) => w.id === "B");
+  const W = (room.width  > 0 ? room.width  : (wallB?.length ?? 3000) / 1000);
+  const D = (room.length > 0 ? room.length : (wallA?.length ?? 4000) / 1000);
+  const H = (room.ceiling_height > 0 ? room.ceiling_height : 2.7);
+  const T = 0.25; // 25 cm wall thickness
   const wallC = geometry.walls.find((w) => w.id === "C");
   const wallD = geometry.walls.find((w) => w.id === "D");
 
@@ -1029,7 +1336,7 @@ export function RoomScene({
       <WindowPanes geometry={geometry} wallWidth={W} wallDepth={D} />
       <Baseboard width={W} depth={D} geometry={geometry} />
       <CornerShadows width={W} depth={D} />
-      <CeilingLights width={W} depth={D} height={H} />
+      <CeilingLights width={W} depth={D} height={H} userLights={userLights ?? []} />
 
       {showContactShadows && (
         <ContactShadows
@@ -1099,10 +1406,12 @@ function CameraAnimator({
   target,
   position,
   controlsRef,
+  version,
 }: {
   target: [number, number, number];
   position: [number, number, number];
   controlsRef: RefObject<OrbitControlsImpl | null>;
+  version: number;
 }) {
   const { camera } = useThree();
   const targetPos = useMemo(() => new THREE.Vector3(...position), [position]);
@@ -1112,10 +1421,11 @@ function CameraAnimator({
   const isAnimating = useRef(false);
   const userDragging = useRef(false);
 
-  // Trigger animation when target changes
+  // Trigger animation when target changes OR when version bumps (same preset re-clicked)
   useEffect(() => {
     isAnimating.current = true;
-  }, [targetPos, targetLookAt]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [targetPos, targetLookAt, version]);
 
   // Pause animation while user drags
   useEffect(() => {
@@ -1156,8 +1466,17 @@ function CameraAnimator({
 
 export default function ThreeDPage() {
   const { room } = useOutletContext<StudioContext>();
-  const { geometry, designState } = useRoomStore();
+  const { geometry, designState, lights: userLights } = useRoomStore();
+
+  // Fall back to geometry wall lengths when API room has width/length = 0
+  const geoWallB = geometry.walls.find((w) => w.id === "B");
+  const geoWallA = geometry.walls.find((w) => w.id === "A");
+  const W = room.width  > 0 ? room.width  : (geoWallB?.length ?? 3000) / 1000;
+  const D = room.length > 0 ? room.length : (geoWallA?.length ?? 4000) / 1000;
+  const H = room.ceiling_height > 0 ? room.ceiling_height : 2.7;
+
   const [preset, setPreset] = useState<ViewPreset>("back");
+  const [presetVersion, setPresetVersion] = useState(0);
   const [dpr, setDpr] = useState<number | [number, number]>([1, 2]);
   const [showContactShadows, setShowContactShadows] = useState(true);
   const [dragEnabled, setDragEnabled] = useState(false);
@@ -1165,18 +1484,19 @@ export default function ThreeDPage() {
 
   const topView = preset === "top";
   const cam = useMemo(
-    () => getCamera(preset, room.width, room.length, room.ceiling_height),
-    [preset, room.width, room.length, room.ceiling_height],
+    () => getCamera(preset, W, D, H),
+    [preset, W, D, H],
   );
 
-  // Interior orbit radius: just under the shortest half-wall distance from centre.
-  // This ensures the camera never escapes the room during free drag.
-  const interiorMaxDist = Math.min(room.width, room.length) / 2 * 0.86;
+  // Limit orbit radius to shorter room dimension so camera stays inside
+  const interiorMaxDist = Math.min(W, D) * 0.85;
+  // Top view: keep camera above ceiling — ceiling is hidden so user can scroll "through" it
+  const topMinDist = H * 2.4;
   const maxPolarAngle = Math.PI * 0.88;
 
   // Initial camera position — only used on first mount
   const initCam = useMemo(
-    () => getCamera("corner", room.width, room.length, room.ceiling_height),
+    () => getCamera("corner", W, D, H),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   );
@@ -1191,7 +1511,7 @@ export default function ThreeDPage() {
           {(["back", "top"] as ViewPreset[]).map((v) => (
             <button
               key={v}
-              onClick={() => setPreset(v)}
+              onClick={() => { setPreset(v); setPresetVersion(n => n + 1) }}
               className={`px-3 py-1 rounded-full transition-colors ${
                 preset === v
                   ? "bg-brand text-white font-medium"
@@ -1256,9 +1576,9 @@ export default function ThreeDPage() {
 
           <Suspense fallback={null}>
             <SceneLighting
-              width={room.width}
-              depth={room.length}
-              height={room.ceiling_height}
+              width={W}
+              depth={D}
+              height={H}
             />
             <Environment preset="apartment" environmentIntensity={0.35} />
 
@@ -1268,18 +1588,21 @@ export default function ThreeDPage() {
               topView={topView}
               designState={designState}
               showContactShadows={showContactShadows}
+              userLights={userLights}
             />
-            <SwapButtons W={room.width} D={room.length} H={room.ceiling_height} />
-            <DraggableFurnitureModels controlsRef={controlsRef} roomW={room.width} roomD={room.length} dragEnabled={dragEnabled} />
+            <SwapButtons W={W} D={D} H={H} />
+            <DraggableFurnitureModels controlsRef={controlsRef} roomW={W} roomD={D} dragEnabled={dragEnabled} />
+            <DraggableElectricalModels controlsRef={controlsRef} W={W} D={D} />
 
             <OrbitControls
               ref={controlsRef}
               target={initCam.target}
               enableDamping
               dampingFactor={0.06}
-              minDistance={0.25}
-              maxDistance={topView ? Math.max(room.width, room.length) * 4 : interiorMaxDist}
-              maxPolarAngle={maxPolarAngle}
+              enablePan={false}
+              minDistance={topView ? topMinDist : 0.25}
+              maxDistance={topView ? Math.max(W, D) * 4 : interiorMaxDist}
+              maxPolarAngle={topView ? Math.PI * 0.3 : maxPolarAngle}
               minPolarAngle={topView ? 0 : 0.08}
               rotateSpeed={topView ? 0.6 : -0.45}
               zoomSpeed={0.8}
@@ -1289,6 +1612,7 @@ export default function ThreeDPage() {
               position={cam.position}
               target={cam.target}
               controlsRef={controlsRef}
+              version={presetVersion}
             />
           </Suspense>
         </Canvas>

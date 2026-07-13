@@ -39,6 +39,7 @@ class RoomUpdate(BaseModel):
     geometry: RoomGeometry | None = None
     surfaces: dict | None = None
     furniture_layout: list | None = None
+    state: dict | None = None
 
 
 class RoomOut(BaseModel):
@@ -49,6 +50,7 @@ class RoomOut(BaseModel):
     geometry: dict | None
     surfaces: dict | None
     furniture_layout: list | None
+    state: dict | None
     floor_area: float | None
     net_wall_area: float | None
     perimeter: float | None

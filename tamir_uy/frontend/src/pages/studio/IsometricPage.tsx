@@ -121,9 +121,9 @@ export default function IsometricPage() {
   const wallColorForPreview = resolveWallColor(designState.wallCoverings)
 
   // ── Isometric projection ─────────────────────────────────────────────────────
-  const w = Math.max(room.width, 2)
-  const l = Math.max(room.length, 2)
-  const H = room.ceiling_height
+  const w = Math.max(room.width ?? 0, 2)
+  const l = Math.max(room.length ?? 0, 2)
+  const H = room.ceiling_height ?? 2.7
 
   const UNIT = 100
   const isoX = UNIT * 0.866

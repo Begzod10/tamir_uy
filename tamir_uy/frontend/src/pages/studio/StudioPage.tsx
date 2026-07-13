@@ -1,7 +1,7 @@
-import { Suspense, useEffect, useMemo } from "react";
-import { NavLink, Outlet, useParams } from "react-router-dom";
+import { Suspense, useEffect, useMemo, useState } from "react";
+import { NavLink, Outlet, useParams, useNavigate, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { getRoom, getDraftRoom } from "@/lib/api";
+import { getRoom, getDraftRoom, createApartment, createRoom, updateRoom } from "@/lib/api";
 import type { Room } from "@/lib/api";
 import { uz } from "@/locale/uz";
 import { cn } from "@/lib/utils";
@@ -55,15 +55,95 @@ function StudioNav({ roomId }: { roomId: string }) {
 
 export default function StudioPage() {
   const { roomId } = useParams<{ roomId: string }>();
+  const navigate = useNavigate();
+  const location = useLocation();
   const storeState = useRoomStore();
   const { draftId, loadDraftState } = useRoomStore();
+  const isDirty = useRoomStore((s) => s.isDirty);
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
 
-  // Restore full geometry from DB draft when store has no wall elements
-  // (e.g. after HMR reload which resets in-memory state)
+  async function handleSave() {
+    if (saveStatus === 'saving') return;
+    setSaveStatus('saving');
+    try {
+      const s = useRoomStore.getState();
+
+      // Build the full state blob to persist
+      const stateBlob = {
+        geometry: s.geometry,
+        ceilingHeight: s.ceilingHeight,
+        name: s.name,
+        designState: s.designState,
+        furniture: s.furniture,
+        electricals: s.electricals,
+        lights: s.lights,
+      };
+
+      // Geometry in backend format: lengths in metres, positions 0-1 fraction
+      const geometryPayload = {
+        walls: s.geometry.walls.map(w => ({
+          id: w.id,
+          length: w.length / 1000,
+          elements: w.elements.map(e => ({
+            type: e.type,
+            width: e.width / 1000,
+            height: e.height / 1000,
+            sill_height: (e.sill_height ?? 0) / 1000,
+            position: e.position > 0 ? Math.min(1, e.position / w.length) : 0.5,
+          })),
+        })),
+      };
+
+      // Try to update existing DB room first
+      if (roomId) {
+        try {
+          await updateRoom(roomId, {
+            name: s.name,
+            ceiling_h: s.ceilingHeight / 1000,
+            geometry: geometryPayload,
+            state: stateBlob as unknown as Record<string, unknown>,
+          });
+          useRoomStore.getState().markSaved();
+          setSaveStatus('saved');
+          setTimeout(() => setSaveStatus('idle'), 2500);
+          return;
+        } catch {
+          // Room doesn't exist in DB yet — fall through to create
+        }
+      }
+
+      // Room not in DB — create apartment + room
+      let aptId = s.apartmentId;
+      if (!aptId) {
+        const apt = await createApartment({ name: s.name || 'Kvartira' });
+        aptId = apt.id;
+      }
+      const newRoom = await createRoom(aptId, {
+        name: s.name || 'Xona',
+        ceiling_h: s.ceilingHeight / 1000,
+        geometry: geometryPayload,
+      });
+      // Save full state to the new room
+      await updateRoom(newRoom.id, {
+        state: stateBlob as unknown as Record<string, unknown>,
+      });
+      useRoomStore.getState().setRoomId(newRoom.id);
+      useRoomStore.getState().markSaved();
+      setSaveStatus('saved');
+      // Replace stale URL with the real room ID
+      const currentTab = location.pathname.split('/').pop() ?? 'ichkarida';
+      navigate(`/studio/${newRoom.id}/${currentTab}`, { replace: true });
+      setTimeout(() => setSaveStatus('idle'), 2500);
+    } catch {
+      setSaveStatus('idle');
+    }
+  }
+
+  // Fallback: restore from draft-room when draftId is set but apiRoom has no state
   useEffect(() => {
     if (!draftId) return;
     const hasElements = storeState.geometry.walls.some(w => w.elements.length > 0);
-    if (hasElements) return; // already hydrated
+    if (hasElements) return;
     getDraftRoom(draftId)
       .then(draft => { if (draft?.state) loadDraftState(draft.state as Record<string, unknown>) })
       .catch(() => undefined);
@@ -132,6 +212,17 @@ export default function StudioPage() {
     ? localRoom
     : (apiRoom ?? localRoom);
 
+  // When a saved room loads from API and has a full state blob, restore it into the store.
+  useEffect(() => {
+    if (!apiRoom) return;
+    const state = (apiRoom as unknown as { state?: Record<string, unknown> }).state;
+    if (!state) return;
+    const hasElements = storeState.geometry.walls.some(w => w.elements.length > 0);
+    if (hasElements) return;
+    loadDraftState(state);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [apiRoom]);
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-paper">
@@ -157,10 +248,34 @@ export default function StudioPage() {
       {/* Header */}
       <header className="bg-surface shadow-sm">
         <div className="max-w-7xl mx-auto px-4 py-3 flex items-center gap-3">
+          <NavLink
+            to="/projects"
+            className="shrink-0 flex items-center justify-center w-8 h-8 rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-900 transition-colors"
+            title="Loyihalarga qaytish"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+              <polyline points="9 22 9 12 15 12 15 22"/>
+            </svg>
+          </NavLink>
           <h1 className="text-lg font-bold text-gray-900 truncate">{room.name}</h1>
           <span className="text-sm text-muted ml-auto">
             {room.area} m² · {room.renovation_level}
           </span>
+          <button
+            onClick={handleSave}
+            disabled={saveStatus === 'saving' || (fetchStatus !== 'notfound' && !isDirty)}
+            className={[
+              "ml-3 px-4 py-1.5 rounded-card text-sm font-semibold transition-colors",
+              saveStatus === 'saved'
+                ? "bg-green-500 text-white"
+                : (isDirty || fetchStatus === 'notfound')
+                  ? "bg-brand text-white hover:bg-brand/90"
+                  : "bg-gray-100 text-gray-400 cursor-default",
+            ].join(' ')}
+          >
+            {saveStatus === 'saving' ? 'Saqlanmoqda…' : saveStatus === 'saved' ? 'Saqlandi ✓' : 'Saqlash'}
+          </button>
         </div>
         <StudioNav roomId={room.id} />
       </header>

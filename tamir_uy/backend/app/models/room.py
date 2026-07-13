@@ -53,6 +53,9 @@ class Room(Base):
     furniture_layout: Mapped[list | None] = mapped_column(
         JSONB, nullable=True, comment="Placed furniture items"
     )
+    state: Mapped[dict | None] = mapped_column(
+        JSONB, nullable=True, comment="Full frontend design state (designState, electricals, lights, furniture)"
+    )
 
     # --- Computed / cached areas ------------------------------------------ #
     floor_area: Mapped[float | None] = mapped_column(

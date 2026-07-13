@@ -92,14 +92,21 @@ export interface Apartment {
   id: string;
   name: string;
   address: string | null;
-  total_area: number;
+  developer: string | null;
   created_at: string;
+  rooms?: ApartmentRoom[];
+}
+
+export interface ApartmentRoom {
+  id: string;
+  name: string;
+  floor_area: number;
 }
 
 export interface CreateApartmentData {
   name: string;
   address?: string;
-  total_area: number;
+  developer?: string;
 }
 
 // ---------- Apartments ----------
@@ -119,10 +126,29 @@ export async function createApartment(
 
 // ---------- Room types ----------
 
+export interface WallElement {
+  type: "eshik" | "deraza" | "balkon";
+  width: number;
+  height: number;
+  sill_height?: number;
+  position?: number;
+}
+
+export interface RoomWall {
+  id: string;
+  length: number;
+  elements: WallElement[];
+}
+
+export interface RoomGeometryData {
+  walls: RoomWall[];
+}
+
 export interface Room {
   id: string;
   apartment_id: string;
   name: string;
+  // Required fields (always provided by StudioPage context)
   room_type: string;
   area: number;
   ceiling_height: number;
@@ -131,27 +157,37 @@ export interface Room {
   num_doors: number;
   num_windows: number;
   has_balcony: boolean;
-  renovation_level: "oddiy" | "orta" | "premium" | "lux";
+  renovation_level: string;
   design_state: Record<string, unknown>;
   created_at: string;
+  // Extended API fields (optional, returned by backend)
+  ceiling_h?: number | null;
+  geometry?: RoomGeometryData | null;
+  surfaces?: Record<string, unknown> | null;
+  furniture_layout?: unknown[] | null;
+  floor_area?: number | null;
+  net_wall_area?: number | null;
+  perimeter?: number | null;
+  openings_count?: number;
+  updated_at?: string;
 }
 
 export interface CreateRoomData {
   name: string;
-  room_type: string;
-  area: number;
-  ceiling_height: number;
-  width: number;
-  length: number;
-  num_doors?: number;
-  num_windows?: number;
-  has_balcony?: boolean;
-  renovation_level?: Room["renovation_level"];
+  ceiling_h: number;
+  geometry: RoomGeometryData;
 }
 
-export type UpdateRoomData = Partial<CreateRoomData> & {
+export interface UpdateRoomData {
+  name?: string;
+  ceiling_h?: number;
+  geometry?: RoomGeometryData;
+  surfaces?: Record<string, unknown>;
+  furniture_layout?: unknown[];
+  state?: Record<string, unknown>;
+  /** @deprecated use state instead */
   design_state?: Record<string, unknown>;
-};
+}
 
 // ---------- Rooms ----------
 

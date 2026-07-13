@@ -1,39 +1,44 @@
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { getApartments } from "@/lib/api";
-import { formatArea } from "@/lib/utils";
+import type { Apartment } from "@/lib/api";
 import { uz } from "@/locale/uz";
 
-function ApartmentCard({
-  id,
-  name,
-  address,
-  total_area,
-}: {
-  id: string;
-  name: string;
-  address: string | null;
-  total_area: number;
-}) {
+function ApartmentCard({ apt }: { apt: Apartment }) {
+  const firstRoom = apt.rooms?.[0]
+  const studioHref = firstRoom ? `/studio/${firstRoom.id}/ichkarida` : null
+
   return (
-    <Link
-      to={`/studio/${id}`}
-      className="group bg-surface rounded-card shadow-sm p-5 flex flex-col gap-2 hover:shadow-md transition-shadow animate-pop-in border-2 border-transparent hover:border-brand/20"
-    >
+    <div className="group bg-surface rounded-card shadow-sm p-5 flex flex-col gap-2 border-2 border-transparent hover:border-brand/20 hover:shadow-md transition-shadow animate-pop-in">
       <div className="flex items-start justify-between gap-2">
-        <h3 className="font-bold text-gray-900 text-base truncate">{name}</h3>
-        <span className="text-sm text-muted bg-paper px-2 py-0.5 rounded-chip flex-shrink-0">
-          {formatArea(total_area)}
-        </span>
+        <h3 className="font-bold text-gray-900 text-base truncate">{apt.name}</h3>
+        {apt.rooms && apt.rooms.length > 1 && (
+          <span className="text-xs text-muted shrink-0">{apt.rooms.length} xona</span>
+        )}
       </div>
-      {address && <p className="text-sm text-muted truncate">{address}</p>}
-      <div className="mt-auto pt-3 border-t border-gray-100">
-        <span className="text-xs text-brand font-medium group-hover:underline">
-          {uz.studio.bezash} →
-        </span>
+      {apt.address && <p className="text-sm text-muted truncate">{apt.address}</p>}
+
+      <div className="mt-auto pt-3 border-t border-gray-100 flex flex-col gap-1">
+        {apt.rooms && apt.rooms.length > 0 ? (
+          apt.rooms.map(room => (
+            <Link
+              key={room.id}
+              to={`/studio/${room.id}/ichkarida`}
+              className="text-xs text-brand font-medium hover:underline truncate"
+            >
+              {apt.rooms!.length > 1 ? `${room.name} →` : `${uz.studio.bezash} →`}
+            </Link>
+          ))
+        ) : studioHref ? (
+          <Link to={studioHref} className="text-xs text-brand font-medium hover:underline">
+            {uz.studio.bezash} →
+          </Link>
+        ) : (
+          <span className="text-xs text-gray-400">Xona yo'q</span>
+        )}
       </div>
-    </Link>
-  );
+    </div>
+  )
 }
 
 function EmptyState() {
@@ -101,13 +106,7 @@ export default function ProjectsPage() {
         {!isLoading && !isError && apartments.length > 0 && (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {apartments.map((apt) => (
-              <ApartmentCard
-                key={apt.id}
-                id={apt.id}
-                name={apt.name}
-                address={apt.address}
-                total_area={apt.total_area}
-              />
+              <ApartmentCard key={apt.id} apt={apt} />
             ))}
           </div>
         )}
