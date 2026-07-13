@@ -1,0 +1,4 @@
+# Git LFS tracking for large binary assets
+# Run `git lfs install` then `git add .gitattributes` before adding GLB files.
+*.glb filter=lfs diff=lfs merge=lfs -text
+*.gltf filter=lfs diff=lfs merge=lfs -text
