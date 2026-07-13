@@ -114,10 +114,12 @@ function WallSegment({
     >
       <boxGeometry args={size} />
       <meshStandardMaterial
-        color={isSelected ? "#D85A30" : color}
+        color={color}
         roughness={roughness}
         metalness={0.0}
         envMapIntensity={1.2}
+        emissive={isSelected ? new THREE.Color("#D85A30") : new THREE.Color(0x000000)}
+        emissiveIntensity={isSelected ? 0.25 : 0}
       />
     </mesh>
   );
@@ -597,6 +599,7 @@ export default function ThreeDStudio({ room }: ThreeDStudioProps) {
       <div className="flex-1 relative" style={{ minHeight: "60vh" }}>
         <Canvas
           shadows
+          dpr={[1, 2]}
           camera={{
             position: [(room.width ?? 0) * 0.7, (room.ceiling_height ?? 2.7) * 0.9, (room.length ?? 0) * 1.4],
             fov: 58,

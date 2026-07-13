@@ -22,7 +22,7 @@ export const FURNITURE_CATALOG: FurnitureCatalogEntry[] = [
     id: 'boconcept_hauge_table',
     name: "Bo Concept Hauge stol to'plami",
     emoji: '🍽️',
-    modelPath: '/models/table_boconcept_hauge_nodrc.glb',
+    modelPath: '/models/table_boconcept_hauge.glb',
     dracoPath: '',
     scale: 0.001,
     sizeM: { w: 1.84, d: 1.83, h: 0.82 },

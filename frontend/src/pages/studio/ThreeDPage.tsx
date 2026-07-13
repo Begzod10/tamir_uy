@@ -993,7 +993,7 @@ function applyColorOverrides(obj: THREE.Object3D, overrides: Record<string, stri
 function FurnitureItem({ item }: { item: PlacedFurniture }) {
   const entry = useFurnitureEntry(item.furniture_id)
   const modelPath = entry?.modelPath ?? ''
-  const { scene } = useGLTF(modelPath || '/models/table_boconcept_hauge_nodrc.glb')
+  const { scene } = useGLTF(modelPath || '/models/table_boconcept_hauge.glb')
   const cloned = useMemo(() => {
     const c = scene.clone(true)
     prepareMesh(c)
@@ -1050,7 +1050,7 @@ function DraggableFurnitureItem({
 }) {
   const entry = useFurnitureEntry(item.furniture_id)
   const modelPath = entry?.modelPath ?? ''
-  const { scene } = useGLTF(modelPath || '/models/table_boconcept_hauge_nodrc.glb')
+  const { scene } = useGLTF(modelPath || '/models/table_boconcept_hauge.glb')
   const cloned = useMemo(() => {
     const c = scene.clone(true)
     prepareMesh(c)
