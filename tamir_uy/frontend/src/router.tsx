@@ -2,8 +2,20 @@ import { lazy, Suspense, type ReactNode } from "react";
 import {
   createBrowserRouter,
   Navigate,
+  useLocation,
   type RouteObject,
 } from "react-router-dom";
+import { getToken } from "@/lib/api";
+
+// ---------- Auth guard ----------
+
+function RequireAuth({ children }: { children: ReactNode }) {
+  const location = useLocation();
+  if (!getToken()) {
+    return <Navigate to="/login" state={{ from: location.pathname }} replace />;
+  }
+  return <>{children}</>;
+}
 
 // ---------- Skeleton fallback ----------
 
@@ -79,6 +91,10 @@ const ProfilePage = lazy(
   () => import("@/pages/profile/ProfilePage")
 );
 
+const LoginPage = lazy(
+  () => import("@/pages/auth/LoginPage")
+);
+
 // ---------- Routes ----------
 
 const routes: RouteObject[] = [
@@ -87,12 +103,16 @@ const routes: RouteObject[] = [
     element: <Navigate to="/projects" replace />,
   },
   {
+    path: "/login",
+    element: withSuspense(<LoginPage />),
+  },
+  {
     path: "/wizard",
-    element: withSuspense(<WizardPage />),
+    element: withSuspense(<RequireAuth><WizardPage /></RequireAuth>),
   },
   {
     path: "/studio/:roomId",
-    element: withSuspense(<StudioPage />),
+    element: withSuspense(<RequireAuth><StudioPage /></RequireAuth>),
     children: [
       {
         index: true,
@@ -114,7 +134,7 @@ const routes: RouteObject[] = [
   },
   {
     path: "/smeta/:roomId",
-    element: withSuspense(<SmetaPage />),
+    element: withSuspense(<RequireAuth><SmetaPage /></RequireAuth>),
   },
   {
     path: "/ustalar",
@@ -122,7 +142,7 @@ const routes: RouteObject[] = [
   },
   {
     path: "/projects",
-    element: withSuspense(<ProjectsPage />),
+    element: withSuspense(<RequireAuth><ProjectsPage /></RequireAuth>),
   },
   {
     path: "/profile",

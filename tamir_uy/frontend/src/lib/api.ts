@@ -16,6 +16,7 @@ export function clearToken(): void {
 
 function handleUnauthorized(): never {
   clearToken();
+  window.location.href = "/login";
   throw new Error("Unauthorized");
 }
 

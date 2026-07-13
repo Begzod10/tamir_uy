@@ -89,9 +89,15 @@ export default function ProfilePage() {
       {/* Login CTA if not logged in */}
       {!loggedIn && (
         <div className="mx-4 mt-4 bg-brand/5 border border-brand/20 rounded-card p-4">
-          <p className="text-sm text-muted">
+          <p className="text-sm text-muted mb-3">
             Loyihalaringizni saqlash uchun telefon raqamingizni kiriting.
           </p>
+          <button
+            onClick={() => navigate("/login")}
+            className="w-full bg-brand text-white rounded-xl py-2.5 text-sm font-semibold hover:bg-brand/90 transition-colors"
+          >
+            Kirish
+          </button>
         </div>
       )}
 
