@@ -456,6 +456,165 @@ function RoomGeometry({
   );
 }
 
+// ─── Room trim (plinth, window frames, door casings) ────────────────────────────
+
+interface RoomTrimProps {
+  room: Room;
+  geometry: RoomGeometry;
+}
+
+const PLINTH_H = 0.10;  // 10 cm
+const PLINTH_D = 0.015; // 1.5 cm depth
+const FRAME_W = 0.05;   // 5 cm frame width
+const FRAME_D = 0.02;   // 2 cm frame depth
+
+const PLINTH_COLOR = "#E8E2D8";
+const FRAME_COLOR = "#DEDBD5";
+const GLASS_COLOR = "#A8C8E0";
+
+function RoomTrim({ room, geometry }: RoomTrimProps) {
+  const W = room.width ?? 4;
+  const D = room.length ?? 4;
+  const T = 0.08;
+  const scaleM = 1 / 1000;
+
+  const wallDefs = [
+    { id: "A", axis: "X" as const, len: W, cx: 0, cz: -D / 2, wallData: geometry.walls.find((w) => w.id === "A") },
+    { id: "B", axis: "Z" as const, len: D, cx: W / 2, cz: 0, wallData: geometry.walls.find((w) => w.id === "B") },
+    { id: "C", axis: "X" as const, len: W, cx: 0, cz: D / 2, wallData: geometry.walls.find((w) => w.id === "C") },
+    { id: "D", axis: "Z" as const, len: D, cx: -W / 2, cz: 0, wallData: geometry.walls.find((w) => w.id === "D") },
+  ] as const;
+
+  const plinthMat = <meshStandardMaterial color={PLINTH_COLOR} roughness={0.4} metalness={0.0} />;
+  const frameMat = <meshStandardMaterial color={FRAME_COLOR} roughness={0.35} metalness={0.0} />;
+  const glassMat = (
+    <meshStandardMaterial
+      color={GLASS_COLOR}
+      roughness={0.05}
+      metalness={0.1}
+      transparent
+      opacity={0.22}
+    />
+  );
+
+  const trimMeshes: JSX.Element[] = [];
+
+  for (const wall of wallDefs) {
+    const elements = wall.wallData?.elements ?? [];
+    const doorPositions = elements
+      .filter((e) => e.type === "eshik")
+      .map((e) => ({ left: e.position * scaleM, right: (e.position + e.width) * scaleM }));
+
+    // ── Plinth strips (skip door sections) ─────────────────────────────────
+    let cursor = 0;
+    const plinths: Array<{ start: number; end: number }> = [];
+    const sortedDoors = [...doorPositions].sort((a, b) => a.left - b.left);
+
+    for (const door of sortedDoors) {
+      if (door.left > cursor) plinths.push({ start: cursor, end: door.left });
+      cursor = door.right;
+    }
+    plinths.push({ start: cursor, end: wall.len });
+
+    for (const p of plinths) {
+      const segLen = p.end - p.start;
+      if (segLen < 0.01) continue;
+      const segCtr = (p.start + p.end) / 2 - wall.len / 2;
+      const px = wall.axis === "X" ? wall.cx + segCtr : wall.cx;
+      const pz = wall.axis === "Z" ? wall.cz + segCtr : wall.cz;
+      const outset = T / 2 + PLINTH_D / 2;
+      const finalX = wall.axis === "Z" ? px + (wall.cx > 0 ? -outset : outset) : px;
+      const finalZ = wall.axis === "X" ? pz + (wall.cz > 0 ? outset : -outset) : pz;
+      const boxW = wall.axis === "X" ? segLen : PLINTH_D;
+      const boxD = wall.axis === "Z" ? segLen : PLINTH_D;
+
+      trimMeshes.push(
+        <mesh key={`plinth-${wall.id}-${p.start}`} position={[finalX, PLINTH_H / 2, finalZ]} receiveShadow>
+          <boxGeometry args={[boxW, PLINTH_H, boxD]} />
+          {plinthMat}
+        </mesh>,
+      );
+    }
+
+    // ── Window frames + glass ──────────────────────────────────────────────
+    for (const el of elements) {
+      if (el.type !== "deraza" && el.type !== "balkon") continue;
+
+      const elL = el.position * scaleM;
+      const elW = el.width * scaleM;
+      const elH = el.height * scaleM;
+      const elBottom = el.sill_height * scaleM;
+      const elCtr = elL + elW / 2 - wall.len / 2;
+
+      // Offset from wall face (outer face of frame)
+      const wallNormalOffset = T / 2 + FRAME_D / 2;
+      const fpx = wall.axis === "X" ? wall.cx + elCtr : (wall.cx > 0 ? wall.cx - wallNormalOffset : wall.cx + wallNormalOffset);
+      const fpz = wall.axis === "Z" ? wall.cz + elCtr : (wall.cz > 0 ? wall.cz + wallNormalOffset : wall.cz - wallNormalOffset);
+
+      const frameCY = elBottom + elH / 2;
+
+      // Left side
+      trimMeshes.push(
+        <mesh key={`wframe-L-${wall.id}-${el.position}`} position={[
+          wall.axis === "X" ? wall.cx + (elL - wall.len / 2) + FRAME_W / 2 : fpx,
+          frameCY,
+          wall.axis === "Z" ? wall.cz + (elL - wall.len / 2) + FRAME_W / 2 : fpz,
+        ]}>
+          <boxGeometry args={[wall.axis === "X" ? FRAME_W : FRAME_D, elH + FRAME_W * 2, wall.axis === "Z" ? FRAME_W : FRAME_D]} />
+          {frameMat}
+        </mesh>,
+      );
+      // Right side
+      trimMeshes.push(
+        <mesh key={`wframe-R-${wall.id}-${el.position}`} position={[
+          wall.axis === "X" ? wall.cx + (elL + elW - wall.len / 2) - FRAME_W / 2 : fpx,
+          frameCY,
+          wall.axis === "Z" ? wall.cz + (elL + elW - wall.len / 2) - FRAME_W / 2 : fpz,
+        ]}>
+          <boxGeometry args={[wall.axis === "X" ? FRAME_W : FRAME_D, elH + FRAME_W * 2, wall.axis === "Z" ? FRAME_W : FRAME_D]} />
+          {frameMat}
+        </mesh>,
+      );
+      // Top
+      trimMeshes.push(
+        <mesh key={`wframe-T-${wall.id}-${el.position}`} position={[
+          wall.axis === "X" ? fpx : fpx,
+          elBottom + elH + FRAME_W / 2,
+          wall.axis === "Z" ? fpz : fpz,
+        ]}>
+          <boxGeometry args={[wall.axis === "X" ? elW + FRAME_W * 2 : FRAME_D, FRAME_W, wall.axis === "Z" ? elW + FRAME_W * 2 : FRAME_D]} />
+          {frameMat}
+        </mesh>,
+      );
+      // Sill
+      trimMeshes.push(
+        <mesh key={`wframe-B-${wall.id}-${el.position}`} position={[
+          wall.axis === "X" ? fpx : fpx,
+          elBottom - FRAME_W / 2,
+          wall.axis === "Z" ? fpz : fpz,
+        ]}>
+          <boxGeometry args={[wall.axis === "X" ? elW + FRAME_W * 2 : FRAME_D, FRAME_W, wall.axis === "Z" ? elW + FRAME_W * 2 : FRAME_D]} />
+          {frameMat}
+        </mesh>,
+      );
+
+      // Glass pane
+      trimMeshes.push(
+        <mesh key={`glass-${wall.id}-${el.position}`} position={[
+          wall.axis === "X" ? fpx : fpx,
+          frameCY,
+          wall.axis === "Z" ? fpz : fpz,
+        ]}>
+          <boxGeometry args={[wall.axis === "X" ? elW : 0.006, elH, wall.axis === "Z" ? elW : 0.006]} />
+          {glassMat}
+        </mesh>,
+      );
+    }
+  }
+
+  return <group>{trimMeshes}</group>;
+}
+
 // ─── Time of day UI ────────────────────────────────────────────────────────────
 
 function TimeOfDayControl({
@@ -594,6 +753,9 @@ function Scene({
         selectedSurface={selectedSurface}
         onSurfaceClick={onSurfaceClick}
       />
+
+      {/* Architectural trim — plinth, window frames, glass */}
+      <RoomTrim room={room} geometry={geometry} />
 
       {/* Camera controls */}
       <OrbitControls
