@@ -168,21 +168,43 @@ const DRAW_FNS: Record<OboyPatternId, DrawFn> = {
 
 // ─── Texture cache ────────────────────────────────────────────────────────────
 
+const CANVAS_SIZE = 1024
+
+// Physical width of one roll in metres (standard Uzbek/EU 53cm + overlap)
+export const ROLL_PHYSICAL_WIDTH_M = 1.06
+
 const textureCache = new Map<string, THREE.CanvasTexture>()
 
-export function createOboyTexture(patternId: OboyPatternId, base: string, accent: string): THREE.CanvasTexture {
-  const key = `${patternId}|${base}|${accent}`
+export function createOboyTexture(
+  patternId: OboyPatternId,
+  base: string,
+  accent: string,
+  anisotropy = 8,
+): THREE.CanvasTexture {
+  const key = `${patternId}|${base}|${accent}|${anisotropy}`
   if (textureCache.has(key)) return textureCache.get(key)!
 
   const canvas = document.createElement('canvas')
-  canvas.width = 512; canvas.height = 512
+  canvas.width = CANVAS_SIZE; canvas.height = CANVAS_SIZE
   const ctx = canvas.getContext('2d')!
-  DRAW_FNS[patternId](ctx, 512, base, accent)
+  DRAW_FNS[patternId](ctx, CANVAS_SIZE, base, accent)
+
+  // Paper-grain roughness overlay — simulates texture without a separate map
+  ctx.globalCompositeOperation = 'overlay'
+  for (let i = 0; i < CANVAS_SIZE * CANVAS_SIZE * 0.008; i++) {
+    const px = (Math.sin(i * 97.1) * 0.5 + 0.5) * CANVAS_SIZE
+    const py = (Math.cos(i * 137.3) * 0.5 + 0.5) * CANVAS_SIZE
+    const v = Math.floor((Math.sin(i * 71.9) * 0.5 + 0.5) * 60 + 100)
+    ctx.fillStyle = `rgba(${v},${v},${v},0.04)`
+    ctx.fillRect(px, py, 1.5, 1.5)
+  }
+  ctx.globalCompositeOperation = 'source-over'
 
   const tex = new THREE.CanvasTexture(canvas)
   tex.wrapS = THREE.RepeatWrapping
   tex.wrapT = THREE.RepeatWrapping
   tex.colorSpace = THREE.SRGBColorSpace
+  tex.anisotropy = anisotropy
 
   if (textureCache.size > 50) {
     const first = textureCache.keys().next().value
@@ -193,6 +215,18 @@ export function createOboyTexture(patternId: OboyPatternId, base: string, accent
   }
   textureCache.set(key, tex)
   return tex
+}
+
+/**
+ * Set repeat so one tile = ROLL_PHYSICAL_WIDTH_M × ROLL_PHYSICAL_WIDTH_M
+ * on a wall of given world-space width × height (in metres).
+ */
+export function setOboyRepeat(tex: THREE.CanvasTexture, wallWidthM: number, wallHeightM: number) {
+  tex.repeat.set(
+    wallWidthM / ROLL_PHYSICAL_WIDTH_M,
+    wallHeightM / ROLL_PHYSICAL_WIDTH_M,
+  )
+  tex.needsUpdate = true
 }
 
 // ─── SVG pattern strings for isometric preview ───────────────────────────────

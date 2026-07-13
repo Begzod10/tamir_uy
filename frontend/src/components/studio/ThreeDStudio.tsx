@@ -13,6 +13,9 @@ import type { Room, Material } from "@/lib/api";
 import * as THREE from "three";
 import { getMaterialTextures, inferTextureKey } from "@/lib/materialTextures";
 import type { MaterialTextureKey } from "@/lib/materialTextures";
+import { createOboyTexture, setOboyRepeat } from "@/lib/oboyPatterns";
+import type { OboyPatternId } from "@/lib/oboyPatterns";
+import type { DesignState } from "@/store/roomStore";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -92,6 +95,7 @@ interface WallSegmentProps {
   castShadow?: boolean;
   onClick?: () => void;
   isSelected?: boolean;
+  oboyTex?: THREE.CanvasTexture | null;
 }
 
 function WallSegment({
@@ -103,8 +107,17 @@ function WallSegment({
   castShadow = true,
   onClick,
   isSelected,
+  oboyTex,
 }: WallSegmentProps) {
   const meshRef = useRef<THREE.Mesh>(null);
+
+  // Set oboy repeat based on this segment's face dimensions
+  if (oboyTex) {
+    // size: [w, h, d] — for X-axis wall: face = size[0] × size[1]; for Z-axis: size[2] × size[1]
+    const faceW = Math.max(size[0], size[2]);
+    const faceH = size[1];
+    setOboyRepeat(oboyTex, faceW, faceH);
+  }
 
   return (
     <mesh
@@ -116,8 +129,9 @@ function WallSegment({
     >
       <boxGeometry args={size} />
       <meshStandardMaterial
-        color={color}
-        roughness={roughness}
+        color={oboyTex ? "#FFFFFF" : color}
+        map={oboyTex ?? null}
+        roughness={oboyTex ? 0.85 : roughness}
         metalness={0.0}
         envMapIntensity={1.2}
         emissive={isSelected ? new THREE.Color("#D85A30") : new THREE.Color(0x000000)}
@@ -128,6 +142,14 @@ function WallSegment({
 }
 
 // ─── Wall with openings ───────────────────────────────────────────────────────
+
+interface WallCoveringProp {
+  kind: "paint" | "oboy";
+  color?: string;
+  baseColor?: string;
+  accentColor?: string;
+  patternId?: OboyPatternId;
+}
 
 interface WallWithOpeningsProps {
   wallLength: number; // meters
@@ -146,6 +168,7 @@ interface WallWithOpeningsProps {
   wallCenterZ: number;
   onClick?: () => void;
   isSelected?: boolean;
+  covering?: WallCoveringProp;
 }
 
 function WallWithOpenings({
@@ -159,7 +182,16 @@ function WallWithOpenings({
   wallCenterZ,
   onClick,
   isSelected,
+  covering,
 }: WallWithOpeningsProps) {
+  const oboyTex = useMemo(() => {
+    if (!covering || covering.kind !== "oboy" || !covering.patternId) return null;
+    return createOboyTexture(
+      covering.patternId,
+      covering.baseColor ?? "#F5F0E8",
+      covering.accentColor ?? "#C0A090",
+    );
+  }, [covering]);
   const segments = useMemo(() => {
     const segs: Array<{
       x: number;
@@ -245,6 +277,8 @@ function WallWithOpenings({
     return segs;
   }, [elements, wallLength, wallHeight, thickness, axis, wallCenterX, wallCenterZ]);
 
+  const effectiveColor = covering?.kind === "paint" ? (covering.color ?? color) : color;
+
   return (
     <group onClick={onClick}>
       {segments.map((seg, i) => (
@@ -252,8 +286,9 @@ function WallWithOpenings({
           key={i}
           position={[seg.x, seg.y, seg.z]}
           size={[seg.w, seg.h, seg.d]}
-          color={color}
+          color={effectiveColor}
           isSelected={isSelected}
+          oboyTex={oboyTex}
         />
       ))}
     </group>
@@ -273,6 +308,7 @@ interface RoomGeometryProps {
   surfaces: AppliedSurfaces;
   materialColorMap: Map<string, string>;
   materialTextureMeta: Map<string, MaterialTextureMeta>;
+  designState: DesignState;
   selectedSurface: SurfaceId | null;
   onSurfaceClick: (id: SurfaceId) => void;
 }
@@ -283,6 +319,7 @@ function RoomGeometry({
   surfaces,
   materialColorMap,
   materialTextureMeta,
+  designState,
   selectedSurface,
   onSurfaceClick,
 }: RoomGeometryProps) {
@@ -301,6 +338,12 @@ function RoomGeometry({
     const matId = surfaces[id as keyof AppliedSurfaces];
     const meta = matId ? materialTextureMeta.get(matId) : undefined;
     return getMaterialTextures(meta?.key ?? fallbackKey);
+  }
+
+  function wallCovering(wallId: "A" | "B" | "C" | "D"): WallCoveringProp | undefined {
+    const c = designState.wallCoverings[wallId] ?? designState.wallCoverings.ALL;
+    if (!c) return undefined;
+    return c as WallCoveringProp;
   }
 
   const wallA = geometry.walls.find((w) => w.id === "A");
@@ -362,6 +405,7 @@ function RoomGeometry({
         wallCenterZ={-D / 2}
         isSelected={selectedSurface === "A"}
         onClick={() => onSurfaceClick("A")}
+        covering={wallCovering("A")}
       />
 
       {/* Wall B: right wall, x = W/2, runs along Z */}
@@ -376,6 +420,7 @@ function RoomGeometry({
         wallCenterZ={0}
         isSelected={selectedSurface === "B"}
         onClick={() => onSurfaceClick("B")}
+        covering={wallCovering("B")}
       />
 
       {/* Wall C: front wall, z = D/2, runs along X */}
@@ -390,6 +435,7 @@ function RoomGeometry({
         wallCenterZ={D / 2}
         isSelected={selectedSurface === "C"}
         onClick={() => onSurfaceClick("C")}
+        covering={wallCovering("C")}
       />
 
       {/* Wall D: left wall, x = -W/2, runs along Z */}
@@ -404,6 +450,7 @@ function RoomGeometry({
         wallCenterZ={0}
         isSelected={selectedSurface === "D"}
         onClick={() => onSurfaceClick("D")}
+        covering={wallCovering("D")}
       />
     </group>
   );
@@ -446,6 +493,7 @@ interface SceneProps {
   surfaces: AppliedSurfaces;
   materialColorMap: Map<string, string>;
   materialTextureMeta: Map<string, MaterialTextureMeta>;
+  designState: DesignState;
   timeOfDay: TimeOfDay;
   highQuality: boolean;
   selectedSurface: SurfaceId | null;
@@ -458,6 +506,7 @@ function Scene({
   surfaces,
   materialColorMap,
   materialTextureMeta,
+  designState,
   timeOfDay,
   highQuality,
   selectedSurface,
@@ -541,6 +590,7 @@ function Scene({
         surfaces={surfaces}
         materialColorMap={materialColorMap}
         materialTextureMeta={materialTextureMeta}
+        designState={designState}
         selectedSurface={selectedSurface}
         onSurfaceClick={onSurfaceClick}
       />
@@ -601,7 +651,7 @@ function Scene({
 // ─── Main component ────────────────────────────────────────────────────────────
 
 export default function ThreeDStudio({ room }: ThreeDStudioProps) {
-  const { geometry, surfaces, applySurface, highQuality3d, setHighQuality3d } = useRoomStore();
+  const { geometry, surfaces, applySurface, highQuality3d, setHighQuality3d, designState } = useRoomStore();
   const queryClient = useQueryClient();
 
   const [timeOfDay, setTimeOfDay] = useState<TimeOfDay>("kunduz");
@@ -684,6 +734,7 @@ export default function ThreeDStudio({ room }: ThreeDStudioProps) {
               surfaces={surfaces}
               materialColorMap={materialColorMap}
               materialTextureMeta={materialTextureMeta}
+              designState={designState}
               timeOfDay={timeOfDay}
               highQuality={highQuality3d}
               selectedSurface={selectedSurface}
