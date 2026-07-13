@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 type PointState = "captured" | "current" | "remaining";
@@ -24,6 +24,9 @@ function ellipsePoint(deg: number) {
 export default function Photo360Page() {
   const navigate = useNavigate();
   const [points, setPoints] = useState<PointState[]>(INITIAL_POINTS);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current) }, []);
 
   const currentIdx = points.findIndex((p) => p === "current");
   const capturedCount = points.filter((p) => p === "captured").length;
@@ -38,7 +41,7 @@ export default function Photo360Page() {
       setPoints(next);
     } else {
       setPoints(next.map(() => "captured" as PointState));
-      setTimeout(() => navigate("/wizard"), 800);
+      timerRef.current = setTimeout(() => navigate("/wizard"), 800);
     }
   }
 

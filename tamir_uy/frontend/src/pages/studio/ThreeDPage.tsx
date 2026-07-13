@@ -1465,6 +1465,15 @@ function CameraAnimator({
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
+const RENO_STAGES = [
+  { label: "Suvoq",        status: "done"    as const },
+  { label: "Shpaklovka",   status: "done"    as const },
+  { label: "Bo'yoq/Oboi",  status: "current" as const },
+  { label: "Pol",          status: "pending" as const },
+  { label: "Montaj",       status: "pending" as const },
+  { label: "Mebel",        status: "pending" as const },
+];
+
 export default function ThreeDPage() {
   const { room } = useOutletContext<StudioContext>();
   const { geometry, designState, lights: userLights } = useRoomStore();
@@ -1482,16 +1491,9 @@ export default function ThreeDPage() {
   const [showContactShadows, setShowContactShadows] = useState(true);
   const [dragEnabled, setDragEnabled] = useState(false);
   const [showAddSheet, setShowAddSheet] = useState(false);
+  const [addSheetSection, setAddSheetSection] = useState<"wallpaper" | "lyustra" | "furniture">("wallpaper");
   const controlsRef = useRef<OrbitControlsImpl | null>(null);
 
-  const renoStages = [
-    { label: "Suvoq",        status: "done"    as const },
-    { label: "Shpaklovka",   status: "done"    as const },
-    { label: "Bo'yoq/Oboi",  status: "current" as const },
-    { label: "Pol",          status: "pending" as const },
-    { label: "Montaj",       status: "pending" as const },
-    { label: "Mebel",        status: "pending" as const },
-  ];
 
   const topView = preset === "top";
   const cam = useMemo(
@@ -1567,7 +1569,7 @@ export default function ThreeDPage() {
 
           {/* ── Renovation stages — left floating rail (screen 10) ── */}
           <div className="absolute left-3 top-1/2 -translate-y-1/2 z-10 flex flex-col gap-1 select-none">
-            {renoStages.map((stage, i) => (
+            {RENO_STAGES.map((stage, i) => (
               <div
                 key={i}
                 className={`flex items-center gap-2 px-2.5 py-1.5 rounded-xl text-[11px] font-semibold transition-colors ${
@@ -1598,14 +1600,14 @@ export default function ThreeDPage() {
           {/* ── Quick-add — right floating buttons (screen 10) ── */}
           <div className="absolute right-3 top-1/2 -translate-y-1/2 z-10 flex flex-col gap-2 select-none">
             {[
-              { label: "Oboi", path: "M3 3h18v18H3zM3 9h18M9 3v18" },
-              { label: "Chiroq", path: "M12 2a4 4 0 014 4c0 2.2-1.4 4-3 5v1H9v-1C7.4 10 6 8.2 6 6a4 4 0 014-4zm0 14v2m-2 0h4" },
-              { label: "Mebel", path: "M2 7h20v10H2zM6 7V5m12 2V5" },
-              { label: "Pol", path: "M2 18h20M2 14h20M6 10l4-4 4 4 4-4" },
+              { label: "Oboi",   section: "wallpaper" as const, path: "M3 3h18v18H3zM3 9h18M9 3v18" },
+              { label: "Chiroq", section: "lyustra"   as const, path: "M12 2a4 4 0 014 4c0 2.2-1.4 4-3 5v1H9v-1C7.4 10 6 8.2 6 6a4 4 0 014-4zm0 14v2m-2 0h4" },
+              { label: "Mebel",  section: "furniture" as const, path: "M2 7h20v10H2zM6 7V5m12 2V5" },
+              { label: "Pol",    section: "wallpaper" as const, path: "M2 18h20M2 14h20M6 10l4-4 4 4 4-4" },
             ].map((btn) => (
               <button
                 key={btn.label}
-                onClick={() => setShowAddSheet(true)}
+                onClick={() => { setAddSheetSection(btn.section); setShowAddSheet(true); }}
                 className="w-12 h-12 rounded-2xl flex flex-col items-center justify-center gap-0.5 active:scale-90 transition-transform"
                 style={{ background: "rgba(255,255,255,0.82)", backdropFilter: "blur(10px)", boxShadow: "0 4px 16px rgba(17,24,39,.14)" }}
                 title={btn.label}
@@ -1702,7 +1704,7 @@ export default function ThreeDPage() {
       <DesignPanel room={room} />
 
       {/* Screen 11: Add object sheet */}
-      {showAddSheet && <AddObjectSheet onClose={() => setShowAddSheet(false)} />}
+      {showAddSheet && <AddObjectSheet onClose={() => setShowAddSheet(false)} initialSection={addSheetSection} />}
     </div>
   );
 }

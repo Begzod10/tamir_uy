@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from typing import Annotated
 from uuid import UUID
 
@@ -16,23 +15,11 @@ from app.models.user import User
 # auto_error=False lets us handle the missing-token case ourselves
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/otp/verify", auto_error=False)
 
-_IS_DEV = os.getenv("ENVIRONMENT", "production") == "development"
-
-
 async def get_current_user(
     token: Annotated[str | None, Depends(oauth2_scheme)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> User:
-    # Development shortcut: no token → use (or create) a guest user
     if token is None:
-        if _IS_DEV:
-            result = await db.execute(select(User).limit(1))
-            user = result.scalar_one_or_none()
-            if user is None:
-                user = User(phone="+998000000000", name="Guest")
-                db.add(user)
-                await db.flush()
-            return user
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Not authenticated",

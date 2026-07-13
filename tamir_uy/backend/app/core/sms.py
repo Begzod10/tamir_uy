@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import random
+import secrets
 import string
 
 import httpx
@@ -14,7 +14,7 @@ _OTP_KEY_PREFIX = "otp:"
 
 def generate_otp() -> str:
     """Return a cryptographically random 6-digit OTP string."""
-    return "".join(random.choices(string.digits, k=6))
+    return "".join(secrets.choice(string.digits) for _ in range(6))
 
 
 async def store_otp(phone: str, code: str, redis: Redis) -> None:

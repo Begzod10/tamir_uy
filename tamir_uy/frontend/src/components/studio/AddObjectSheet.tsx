@@ -71,7 +71,7 @@ export function AddObjectSheet({ onClose, initialSection = "wallpaper" }: AddObj
   const [section, setSection] = useState<Section>(initialSection);
   const [roomTab, setRoomTab] = useState<RoomTab>("Mehmonxona");
   const [selectedSwatch, setSelectedSwatch] = useState<string | null>(null);
-  const { setWallCovering } = useRoomStore();
+  const { setWallCovering, addLight, placeFurniture } = useRoomStore();
 
   function applyWallpaper() {
     if (!selectedSwatch) return;
@@ -181,7 +181,13 @@ export function AddObjectSheet({ onClose, initialSection = "wallpaper" }: AddObj
                   <LyustraIcon bg={item.bg} />
                   <p className="text-[14px] font-bold text-gray-900">{item.name}</p>
                   <p className="text-[12px] text-muted mt-0.5">{item.price} so'm</p>
-                  <button className="mt-2 w-full py-1.5 bg-brand text-white rounded-xl text-[13px] font-semibold active:scale-95 transition-transform">
+                  <button
+                    onClick={() => {
+                      addLight({ id: `light_${item.id}_${Date.now()}`, xMm: 2000, zMm: 1500 });
+                      onClose();
+                    }}
+                    className="mt-2 w-full py-1.5 bg-brand text-white rounded-xl text-[13px] font-semibold active:scale-95 transition-transform"
+                  >
                     Qo'shish
                   </button>
                 </div>
@@ -223,7 +229,13 @@ export function AddObjectSheet({ onClose, initialSection = "wallpaper" }: AddObj
                       <p className="text-[15px] font-bold text-gray-900">{item.name}</p>
                       <p className="text-[12px] text-muted">{item.size}</p>
                     </div>
-                    <button className="w-9 h-9 rounded-full bg-brand text-white flex items-center justify-center flex-shrink-0 font-bold text-xl active:scale-90 transition-transform">
+                    <button
+                      onClick={() => {
+                        placeFurniture({ id: `furn_${item.id}_${Date.now()}`, furniture_id: item.id, x: 0, y: 0, rotation: 0 });
+                        onClose();
+                      }}
+                      className="w-9 h-9 rounded-full bg-brand text-white flex items-center justify-center flex-shrink-0 font-bold text-xl active:scale-90 transition-transform"
+                    >
                       +
                     </button>
                   </div>

@@ -64,6 +64,7 @@ const WalkthroughPage = lazy(() => import("@/pages/studio/WalkthroughPage"));
 const SmetaPage = lazy(() => import("@/pages/smeta/SmetaPage"));
 const ProjectsPage = lazy(() => import("@/pages/projects/ProjectsPage"));
 const DokonPage = lazy(() => import("@/pages/dokon/DokonPage"));
+const UstalarPage = lazy(() => import("@/pages/ustalar/UstalarPage"));
 const ProfilePage = lazy(() => import("@/pages/profile/ProfilePage"));
 const LoginPage = lazy(() => import("@/pages/auth/LoginPage"));
 const LidarPage = lazy(() => import("@/pages/scan/LidarPage"));
@@ -92,6 +93,10 @@ const routes: RouteObject[] = [
       {
         path: "/dokon",
         element: withSuspense(<DokonPage />),
+      },
+      {
+        path: "/ustalar",
+        element: withSuspense(<UstalarPage />),
       },
       {
         path: "/profile",
