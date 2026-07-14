@@ -115,9 +115,16 @@ function EnterOverlay({ onEnter }: { onEnter: () => void }) {
 
 export default function WalkthroughPage() {
   const { room } = useOutletContext<StudioContext>();
-  const { geometry, designState } = useRoomStore();
+  const { geometry, designState, lights } = useRoomStore();
   const [locked, setLocked] = useState(false);
   const controlsRef = useRef<PointerLockControlsImpl | null>(null);
+
+  // Fallback to store geometry when the API room lacks width/length
+  const wallA = geometry.walls.find(w => w.id === 'A');
+  const wallB = geometry.walls.find(w => w.id === 'B');
+  const roomW = (room.width  > 0 ? room.width  : (wallB?.length ?? 3000) / 1000);
+  const roomD = (room.length > 0 ? room.length : (wallA?.length ?? 4000) / 1000);
+  const roomH = room.ceiling_height ?? 2.7;
 
   const handleEnter = () => {
     controlsRef.current?.lock();
@@ -135,7 +142,7 @@ export default function WalkthroughPage() {
         <color attach="background" args={["#E8E4DC"]} />
 
         <Suspense fallback={null}>
-          <SceneLighting width={room.width ?? 0} depth={room.length ?? 0} height={room.ceiling_height ?? 2.7} />
+          <SceneLighting width={roomW} depth={roomD} height={roomH} />
           <Environment preset="apartment" environmentIntensity={0.3} />
 
           <RoomScene
@@ -144,6 +151,7 @@ export default function WalkthroughPage() {
             topView={false}
             designState={designState}
             showContactShadows={false}
+            hasUserLights={lights.length > 0}
           />
 
           <Suspense fallback={null}>
@@ -157,8 +165,8 @@ export default function WalkthroughPage() {
           />
 
           <MovementController
-            roomW={room.width ?? 0}
-            roomD={room.length ?? 0}
+            roomW={roomW}
+            roomD={roomD}
             controlsRef={controlsRef}
           />
         </Suspense>

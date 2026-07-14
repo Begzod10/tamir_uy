@@ -146,6 +146,7 @@ interface RoomStore {
   moveElectrical(id: string, positionMm: number): void
   removeElectrical(id: string): void
   addLight(l: PlacedLight): void
+  moveLight(id: string, xMm: number, zMm: number): void
   removeLight(id: string): void
   clearLights(): void
   addUserFurniture(entry: UserFurnitureEntry): void
@@ -353,6 +354,12 @@ export const useRoomStore = create<RoomStore>()(
   },
   addLight(l) {
     set((state) => ({ lights: [...state.lights, l], isDirty: true }))
+  },
+  moveLight(id, xMm, zMm) {
+    set((state) => ({
+      lights: state.lights.map((l) => l.id === id ? { ...l, xMm, zMm } : l),
+      isDirty: true,
+    }))
   },
   removeLight(id) {
     set((state) => ({ lights: state.lights.filter((l) => l.id !== id), isDirty: true }))

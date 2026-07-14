@@ -566,33 +566,21 @@ function CeilingLightDisk({ x, z, height, intensity }: { x: number; z: number; h
   );
 }
 
+// CeilingLights renders auto-grid ONLY when no user lights are placed.
+// User-placed lights are rendered + made draggable by DraggableLightModels (in Canvas).
 function CeilingLights({
   width, depth, height,
-  userLights,
+  hasUserLights,
 }: {
   width: number; depth: number; height: number;
-  userLights: PlacedLight[];
+  hasUserLights: boolean;
 }) {
   const autoPositions = useMemo(
     () => computeDiskLightPositions(width, depth),
     [width, depth],
   );
 
-  // When user has placed lights, use those; otherwise fall back to auto-grid
-  if (userLights.length > 0) {
-    const intensity = Math.max(0.15, 1.8 / userLights.length);
-    return (
-      <group>
-        {userLights.map((l) => {
-          // xMm / zMm are in room-local coords (0..W*1000, 0..D*1000)
-          // 3D scene: center at origin, so shift by -W/2, -D/2
-          const x = l.xMm / 1000 - width / 2;
-          const z = l.zMm / 1000 - depth / 2;
-          return <CeilingLightDisk key={l.id} x={x} z={z} height={height} intensity={intensity} />;
-        })}
-      </group>
-    );
-  }
+  if (hasUserLights) return null;
 
   const intensity = Math.max(0.15, 1.8 / autoPositions.length);
   return (
@@ -602,6 +590,111 @@ function CeilingLights({
       ))}
     </group>
   );
+}
+
+// ─── Draggable ceiling lights (user-placed from elektr menu) ──────────────────
+
+function DraggableLightModels({
+  controlsRef,
+  roomW,
+  roomD,
+  roomH,
+  toolMode,
+}: {
+  controlsRef: RefObject<OrbitControlsImpl | null>
+  roomW: number
+  roomD: number
+  roomH: number
+  toolMode: ToolMode
+}) {
+  const lights = useRoomStore((s) => s.lights)
+  const moveLight = useRoomStore((s) => s.moveLight)
+  const [draggingId, setDraggingId] = useState<string | null>(null)
+  const draggingIdRef = useRef<string | null>(null)
+  const dragPosRef = useRef(new THREE.Vector2())
+  const lightsRef = useRef(lights)
+  lightsRef.current = lights
+  const { camera, gl } = useThree()
+  const ceilingPlane = useMemo(() => new THREE.Plane(new THREE.Vector3(0, -1, 0), roomH), [roomH])
+  const raycaster = useMemo(() => new THREE.Raycaster(), [])
+  const hitPoint = useRef(new THREE.Vector3())
+
+  const intensity = Math.max(0.15, 1.8 / lights.length)
+
+  function startDrag(light: PlacedLight, e: ThreeEvent<PointerEvent>) {
+    if (toolMode === 'select') return
+    e.stopPropagation()
+    dragPosRef.current.set(light.xMm, light.zMm)
+    draggingIdRef.current = light.id
+    setDraggingId(light.id)
+    if (controlsRef.current) controlsRef.current.enabled = false
+    document.body.style.cursor = 'grabbing'
+  }
+
+  function commitDrag() {
+    const id = draggingIdRef.current
+    if (!id) return
+    moveLight(id, Math.round(dragPosRef.current.x), Math.round(dragPosRef.current.y))
+    draggingIdRef.current = null
+    setDraggingId(null)
+    if (controlsRef.current) controlsRef.current.enabled = true
+    document.body.style.cursor = ''
+  }
+
+  useEffect(() => {
+    if (!draggingId) return
+    const canvas = gl.domElement
+    const halfW = (roomW / 2) * 1000
+    const halfD = (roomD / 2) * 1000
+
+    const handleMove = (e: PointerEvent) => {
+      const rect = canvas.getBoundingClientRect()
+      const ndc = new THREE.Vector2(
+        ((e.clientX - rect.left) / rect.width) * 2 - 1,
+        -((e.clientY - rect.top) / rect.height) * 2 + 1,
+      )
+      raycaster.setFromCamera(ndc, camera)
+      if (!raycaster.ray.intersectPlane(ceilingPlane, hitPoint.current)) return
+      const xMm = Math.max(-halfW, Math.min(halfW, hitPoint.current.x * 1000)) + halfW
+      const zMm = Math.max(-halfD, Math.min(halfD, hitPoint.current.z * 1000)) + halfD
+      dragPosRef.current.set(xMm, zMm)
+    }
+
+    canvas.addEventListener('pointermove', handleMove)
+    window.addEventListener('pointerup', commitDrag)
+    return () => {
+      canvas.removeEventListener('pointermove', handleMove)
+      window.removeEventListener('pointerup', commitDrag)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draggingId, roomW, roomD, roomH])
+
+  if (lights.length === 0) return null
+  return (
+    <>
+      {lights.map((l) => {
+        const x = l.xMm / 1000 - roomW / 2
+        const z = l.zMm / 1000 - roomD / 2
+        const isDragging = draggingId === l.id
+        return (
+          <group key={l.id}>
+            <CeilingLightDisk x={x} z={z} height={roomH} intensity={intensity} />
+            {/* Invisible drag handle on ceiling */}
+            <mesh
+              position={[x, roomH, z]}
+              rotation={[Math.PI / 2, 0, 0]}
+              onPointerDown={(e) => startDrag(l, e)}
+              onPointerEnter={() => { if (toolMode !== 'select') document.body.style.cursor = 'grab' }}
+              onPointerLeave={() => { if (!isDragging) document.body.style.cursor = '' }}
+            >
+              <circleGeometry args={[0.12, 16]} />
+              <meshBasicMaterial transparent opacity={0} />
+            </mesh>
+          </group>
+        )
+      })}
+    </>
+  )
 }
 
 // ─── Wall-mounted electrical devices ─────────────────────────────────────────
@@ -1308,14 +1401,14 @@ export function RoomScene({
   topView,
   designState,
   showContactShadows,
-  userLights,
+  hasUserLights,
 }: {
   room: Room;
   geometry: RoomGeometry;
   topView: boolean;
   designState: DesignState;
   showContactShadows: boolean;
-  userLights?: PlacedLight[];
+  hasUserLights: boolean;
 }) {
   const wallA = geometry.walls.find((w) => w.id === "A");
   const wallB = geometry.walls.find((w) => w.id === "B");
@@ -1367,13 +1460,11 @@ export function RoomScene({
     <group>
       <WoodFloor width={W} depth={D} floorType={designState.floorType} />
 
-      {/* Ceiling — box so the top face blocks directional light (plane back-face is shadow-culled) */}
-      {!topView && (
-        <mesh position={[0, H + 0.025, 0]} castShadow receiveShadow>
-          <boxGeometry args={[W, 0.05, D]} />
-          <meshStandardMaterial color={CEILING_DEFAULT} roughness={0.95} />
-        </mesh>
-      )}
+      {/* Ceiling — always renders to block light; invisible to camera in topView */}
+      <mesh position={[0, H + 0.025, 0]} castShadow receiveShadow visible={!topView}>
+        <boxGeometry args={[W, 0.05, D]} />
+        <meshStandardMaterial color={CEILING_DEFAULT} roughness={0.95} />
+      </mesh>
 
       {/* Wall A — back, inner width W only, inner face at z = -D/2 */}
       <Wall wallId="A" length={W} height={H} thickness={T} covering={coveringA}
@@ -1394,7 +1485,7 @@ export function RoomScene({
       <WindowPanes geometry={geometry} wallWidth={W} wallDepth={D} />
       <Baseboard width={W} depth={D} geometry={geometry} />
       <CornerShadows width={W} depth={D} />
-      <CeilingLights width={W} depth={D} height={H} userLights={userLights ?? []} />
+      <CeilingLights width={W} depth={D} height={H} hasUserLights={hasUserLights} />
 
       {showContactShadows && (
         <ContactShadows
@@ -1797,11 +1888,12 @@ export default function ThreeDPage() {
               topView={topView}
               designState={designState}
               showContactShadows={showContactShadows}
-              userLights={userLights}
+              hasUserLights={userLights.length > 0}
             />
             <SwapButtons W={W} D={D} H={H} />
             <DraggableFurnitureModels controlsRef={controlsRef} roomW={W} roomD={D} toolMode={toolMode} onSelectItem={setSelectedFurId} />
             <DraggableElectricalModels controlsRef={controlsRef} W={W} D={D} />
+            <DraggableLightModels controlsRef={controlsRef} roomW={W} roomD={D} roomH={H} toolMode={toolMode} />
 
             <OrbitControls
               ref={controlsRef}
