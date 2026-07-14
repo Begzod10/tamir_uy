@@ -164,7 +164,7 @@ function WoodFloor({ width, depth, floorType }: { width: number; depth: number; 
   useEffect(() => () => { texture.dispose() }, [texture]);
 
   return (
-    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.001, 0]} receiveShadow>
+    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.001, 0]} castShadow receiveShadow>
       <planeGeometry args={[width + 0.04, depth + 0.04]} />
       <meshStandardMaterial map={texture} roughness={0.55} metalness={0.05} envMapIntensity={0.4} />
     </mesh>
@@ -559,7 +559,7 @@ function CeilingLightDisk({ x, z, height, intensity }: { x: number; z: number; h
         position={[x, height - 0.06, z]}
         color="#D8EEFF"
         intensity={intensity}
-        distance={height * 4}
+        distance={height * 1.6}
         decay={2}
       />
     </group>
@@ -1367,10 +1367,10 @@ export function RoomScene({
     <group>
       <WoodFloor width={W} depth={D} floorType={designState.floorType} />
 
-      {/* Ceiling */}
+      {/* Ceiling — box so the top face blocks directional light (plane back-face is shadow-culled) */}
       {!topView && (
-        <mesh rotation={[Math.PI / 2, 0, 0]} position={[0, H, 0]}>
-          <planeGeometry args={[W, D]} />
+        <mesh position={[0, H + 0.025, 0]} castShadow receiveShadow>
+          <boxGeometry args={[W, 0.05, D]} />
           <meshStandardMaterial color={CEILING_DEFAULT} roughness={0.95} />
         </mesh>
       )}
