@@ -1250,8 +1250,11 @@ function DraggableFurnitureModels({
         const { w, d } = dragHalfRef.current
         const halfW = roomW / 2
         const halfD = roomD / 2
-        const x = Math.max(-halfW + w, Math.min(halfW - w, hitPoint.current.x))
-        const z = Math.max(-halfD + d, Math.min(halfD - d, hitPoint.current.z))
+        const snap = 0.05
+        const rawX = Math.max(-halfW + w, Math.min(halfW - w, hitPoint.current.x))
+        const rawZ = Math.max(-halfD + d, Math.min(halfD - d, hitPoint.current.z))
+        const x = Math.round(rawX / snap) * snap
+        const z = Math.round(rawZ / snap) * snap
         dragPosRef.current.set(x, 0, z)
       } else if (toolMode === 'rotate') {
         const deltaX = e.clientX - rotateStartXRef.current
