@@ -7,6 +7,7 @@ import {
   PerformanceMonitor,
   Html,
   useGLTF,
+  Grid,
 } from "@react-three/drei";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import { useOutletContext } from "react-router-dom";
@@ -240,7 +241,7 @@ function WallSegment({
   const paintColor = covering.kind === 'paint' ? covering.color : '#ffffff';
 
   return (
-    <mesh position={[seg.px, seg.py, seg.pz]} rotation={[0, seg.ry, 0]} receiveShadow>
+    <mesh position={[seg.px, seg.py, seg.pz]} rotation={[0, seg.ry, 0]} castShadow receiveShadow>
       <planeGeometry args={[seg.pw, seg.ph]} />
       {covering.kind === 'paint' ? (
         <meshStandardMaterial color={paintColor} roughness={0.88} metalness={0} envMapIntensity={0.3} />
@@ -852,7 +853,6 @@ export function SceneLighting({ width, depth, height }: { width: number; depth: 
         shadow-camera-bottom={-8}
         shadow-bias={-0.001}
       />
-      <directionalLight position={[-width, height * 1.2, -depth]} intensity={0.4} color="#C8D8F0" />
     </>
   );
 }
@@ -1761,6 +1761,20 @@ export default function ThreeDPage() {
         >
           <color attach="background" args={["#E8E4DC"]} />
           <fog attach="fog" args={["#E8E4DC", 12, 30]} />
+
+          {/* Infinite workspace grid */}
+          <Grid
+            position={[0, -0.002, 0]}
+            infiniteGrid
+            cellSize={0.1}
+            cellThickness={0.4}
+            cellColor="#888888"
+            sectionSize={1}
+            sectionThickness={0.8}
+            sectionColor="#444444"
+            fadeDistance={28}
+            fadeStrength={1.4}
+          />
 
           <PerformanceMonitor
             onDecline={() => {
