@@ -1,8 +1,6 @@
 import { Suspense, useMemo, useState, useRef } from "react";
 import { Canvas } from "@react-three/fiber";
 import { OrbitControls, Environment, Sky, ContactShadows, SoftShadows, Lightformer } from "@react-three/drei";
-import { EffectComposer, SSAO, Bloom, Vignette, N8AO, SMAA } from "@react-three/postprocessing";
-import { BlendFunction } from "postprocessing";
 import { useRoomStore } from "@/store/roomStore";
 import type { AppliedSurfaces, RoomGeometry } from "@/store/roomStore";
 import { updateRoom } from "@/lib/api";
@@ -740,7 +738,6 @@ interface SceneProps {
   materialTextureMeta: Map<string, MaterialTextureMeta>;
   designState: DesignState;
   timeOfDay: TimeOfDay;
-  highQuality: boolean;
   selectedSurface: SurfaceId | null;
   onSurfaceClick: (id: SurfaceId) => void;
 }
@@ -753,7 +750,6 @@ function Scene({
   materialTextureMeta,
   designState,
   timeOfDay,
-  highQuality,
   selectedSurface,
   onSurfaceClick,
 }: SceneProps) {
@@ -856,45 +852,6 @@ function Scene({
         target={[0, (room.ceiling_height ?? 2.7) / 3, 0]}
       />
 
-      {/* Post-processing effects */}
-      {highQuality ? (
-        <EffectComposer multisampling={0}>
-          <N8AO
-            aoRadius={0.5}
-            intensity={2.5}
-            distanceFalloff={0.5}
-            halfRes={false}
-            screenSpaceRadius={false}
-          />
-          <Bloom
-            intensity={0.12}
-            luminanceThreshold={0.9}
-            luminanceSmoothing={0.025}
-            mipmapBlur
-          />
-          <Vignette offset={0.18} darkness={0.30} />
-          <SMAA />
-        </EffectComposer>
-      ) : (
-        <EffectComposer multisampling={4}>
-          <SSAO
-            blendFunction={BlendFunction.MULTIPLY}
-            samples={16}
-            radius={0.06}
-            intensity={20}
-            luminanceInfluence={0.6}
-            rings={3}
-            color={new THREE.Color("black")}
-          />
-          <Bloom
-            intensity={0.12}
-            luminanceThreshold={0.9}
-            luminanceSmoothing={0.025}
-            mipmapBlur
-          />
-          <Vignette offset={0.18} darkness={0.30} />
-        </EffectComposer>
-      )}
     </>
   );
 }
@@ -987,7 +944,6 @@ export default function ThreeDStudio({ room }: ThreeDStudioProps) {
               materialTextureMeta={materialTextureMeta}
               designState={designState}
               timeOfDay={timeOfDay}
-              highQuality={highQuality3d}
               selectedSurface={selectedSurface}
               onSurfaceClick={handleSurfaceClick}
             />

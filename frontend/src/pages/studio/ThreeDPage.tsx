@@ -164,7 +164,7 @@ function WoodFloor({ width, depth, floorType }: { width: number; depth: number; 
 
   return (
     <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.001, 0]} receiveShadow>
-      <planeGeometry args={[width, depth]} />
+      <planeGeometry args={[width + 0.04, depth + 0.04]} />
       <meshStandardMaterial map={texture} roughness={0.55} metalness={0.05} envMapIntensity={0.4} />
     </mesh>
   );
@@ -233,7 +233,9 @@ function WallSegment({
     t.offset.set(seg.uOffset, 0);
     t.needsUpdate = true;
     return t;
-  }, [baseTexture, seg.uOffset, seg.uRepeat, seg.vRepeat]);
+  // covering.kind guards the early-exit so it must be a dep
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [covering.kind, baseTexture, seg.uOffset, seg.uRepeat, seg.vRepeat]);
 
   const paintColor = covering.kind === 'paint' ? covering.color : '#ffffff';
 
@@ -278,7 +280,7 @@ function Wall({ length, height, thickness, covering, elements, axis, cx, cz }: W
       const startM = startMm / 1000
       const uOffset = (startM % WALLPAPER_WIDTH_M) / WALLPAPER_WIDTH_M
       const uRepeat = segLenM / WALLPAPER_WIDTH_M
-      const vRepeat = sh / 1.0
+      const vRepeat = sh / WALLPAPER_WIDTH_M
 
       let px: number, py: number = posY, pz: number, ry: number, pw: number
       const ph = sh
@@ -367,7 +369,12 @@ function Wall({ length, height, thickness, covering, elements, axis, cx, cz }: W
   return (
     <group>
       {segments.map((seg, i) => (
-        <WallSegment key={i} seg={seg} covering={covering} baseTexture={oboyTexture} />
+        <WallSegment
+          key={`${i}-${covering.kind === 'oboy' ? covering.patternId : 'p'}`}
+          seg={seg}
+          covering={covering}
+          baseTexture={oboyTexture}
+        />
       ))}
     </group>
   );
@@ -476,22 +483,22 @@ function Baseboard({ width, depth, geometry }: { width: number; depth: number; g
   return (
     <group>
       {segsA.map((s, i) => (
-        <mesh key={`A${i}`} position={[s.center, h / 2, -depth / 2 + t / 2]}>
+        <mesh key={`A${i}`} position={[s.center, h / 2, -depth / 2 + t / 2 - 0.001]}>
           <boxGeometry args={[s.len, h, t]} />{mat}
         </mesh>
       ))}
       {segsC.map((s, i) => (
-        <mesh key={`C${i}`} position={[s.center, h / 2, depth / 2 - t / 2]}>
+        <mesh key={`C${i}`} position={[s.center, h / 2, depth / 2 - t / 2 + 0.001]}>
           <boxGeometry args={[s.len, h, t]} />{mat}
         </mesh>
       ))}
       {segsB.map((s, i) => (
-        <mesh key={`B${i}`} position={[width / 2 - t / 2, h / 2, s.center]}>
+        <mesh key={`B${i}`} position={[width / 2 - t / 2 + 0.001, h / 2, s.center]}>
           <boxGeometry args={[t, h, s.len]} />{mat}
         </mesh>
       ))}
       {segsD.map((s, i) => (
-        <mesh key={`D${i}`} position={[-width / 2 + t / 2, h / 2, s.center]}>
+        <mesh key={`D${i}`} position={[-width / 2 + t / 2 - 0.001, h / 2, s.center]}>
           <boxGeometry args={[t, h, s.len]} />{mat}
         </mesh>
       ))}
@@ -1033,18 +1040,22 @@ FURNITURE_CATALOG.forEach((e) => useGLTF.preload(e.modelPath));
 
 // ─── Draggable furniture (ThreeDPage only) ────────────────────────────────────
 
+type ToolMode = 'select' | 'move' | 'rotate'
+
 function DraggableFurnitureItem({
   item,
   isDragging,
-  dragEnabled,
+  toolMode,
   dragPosRef,
+  dragRotRef,
   onMeshPointerDown,
   onButtonPointerDown,
 }: {
   item: PlacedFurniture
   isDragging: boolean
-  dragEnabled: boolean
+  toolMode: ToolMode
   dragPosRef: RefObject<THREE.Vector3>
+  dragRotRef: RefObject<number>
   onMeshPointerDown: (e: ThreeEvent<PointerEvent>) => void
   onButtonPointerDown: (e: React.PointerEvent) => void
 }) {
@@ -1057,6 +1068,7 @@ function DraggableFurnitureItem({
     return c
   }, [scene])
   const groupRef = useRef<THREE.Group>(null)
+  const primitiveRef = useRef<THREE.Object3D>(null)
 
   useLayoutEffect(() => {
     if (!item.colorOverrides || Object.keys(item.colorOverrides).length === 0) return
@@ -1064,51 +1076,71 @@ function DraggableFurnitureItem({
   }, [cloned, item.colorOverrides])
 
   useFrame(() => {
-    const pos = dragPosRef.current
-    if (isDragging && groupRef.current && pos) {
-      groupRef.current.position.x = pos.x
-      groupRef.current.position.z = pos.z
+    if (!isDragging) return
+    if (toolMode === 'move' && groupRef.current && dragPosRef.current) {
+      groupRef.current.position.x = dragPosRef.current.x
+      groupRef.current.position.z = dragPosRef.current.z
+    } else if (toolMode === 'rotate' && primitiveRef.current && dragRotRef.current !== null) {
+      primitiveRef.current.rotation.y = dragRotRef.current
     }
   })
 
   if (!entry || !modelPath) return null
 
+  const interactive = toolMode !== 'select'
   const buttonH = (entry.sizeM.h ?? 1) + 0.18
+  const btnActive = isDragging
 
   return (
     <group ref={groupRef} position={[item.x / 1000, 0, item.y / 1000]}>
       <primitive
+        ref={primitiveRef}
         object={cloned}
         rotation={[0, item.rotation, 0]}
         scale={entry.scale}
-        onPointerDown={dragEnabled ? onMeshPointerDown : undefined}
-        onPointerEnter={() => { if (dragEnabled) document.body.style.cursor = 'grab' }}
+        onPointerDown={interactive ? onMeshPointerDown : undefined}
+        onPointerEnter={() => { if (interactive) document.body.style.cursor = toolMode === 'rotate' ? 'ew-resize' : 'grab' }}
         onPointerLeave={() => { if (!isDragging) document.body.style.cursor = '' }}
       />
-      {dragEnabled && (
+      {toolMode === 'move' && (
         <Html position={[0, buttonH, 0]} center zIndexRange={[100, 0]} style={{ pointerEvents: 'none' }}>
           <button
             onPointerDown={(e) => { e.stopPropagation(); onButtonPointerDown(e) }}
             title="Siljitish"
             style={{
-              pointerEvents: 'all',
-              width: 30,
-              height: 30,
-              borderRadius: '50%',
-              border: isDragging ? '2px solid #D85A30' : '1.5px solid rgba(0,0,0,0.18)',
-              background: isDragging ? '#D85A30' : 'rgba(255,255,255,0.92)',
-              color: isDragging ? '#fff' : '#555',
-              cursor: isDragging ? 'grabbing' : 'grab',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              boxShadow: '0 2px 8px rgba(0,0,0,0.22)',
-              userSelect: 'none',
-              touchAction: 'none',
+              pointerEvents: 'all', width: 30, height: 30, borderRadius: '50%',
+              border: btnActive ? '2px solid #1E40AF' : '1.5px solid rgba(0,0,0,0.18)',
+              background: btnActive ? '#1E40AF' : 'rgba(255,255,255,0.92)',
+              color: btnActive ? '#fff' : '#555',
+              cursor: btnActive ? 'grabbing' : 'grab',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              boxShadow: '0 2px 8px rgba(0,0,0,0.22)', userSelect: 'none', touchAction: 'none',
             }}
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
               <path d="M11 3l-4 4h3v3H7V7l-4 4 4 4v-3h3v3H7l4 4 4-4h-3v-3h3v3l4-4-4-4v3h-3V7h3l-4-4z"/>
+            </svg>
+          </button>
+        </Html>
+      )}
+      {toolMode === 'rotate' && (
+        <Html position={[0, buttonH, 0]} center zIndexRange={[100, 0]} style={{ pointerEvents: 'none' }}>
+          <button
+            onPointerDown={(e) => { e.stopPropagation(); onButtonPointerDown(e) }}
+            title="Aylantirish"
+            style={{
+              pointerEvents: 'all', width: 30, height: 30, borderRadius: '50%',
+              border: btnActive ? '2px solid #1E40AF' : '1.5px solid rgba(0,0,0,0.18)',
+              background: btnActive ? '#1E40AF' : 'rgba(255,255,255,0.92)',
+              color: btnActive ? '#fff' : '#555',
+              cursor: 'ew-resize',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              boxShadow: '0 2px 8px rgba(0,0,0,0.22)', userSelect: 'none', touchAction: 'none',
+            }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+              <path d="M3 3v5h5"/>
             </svg>
           </button>
         </Html>
@@ -1121,23 +1153,29 @@ function DraggableFurnitureModels({
   controlsRef,
   roomW,
   roomD,
-  dragEnabled,
+  toolMode,
+  snapAngleDeg,
+  onSelectItem,
 }: {
   controlsRef: RefObject<OrbitControlsImpl | null>
   roomW: number
   roomD: number
-  dragEnabled: boolean
+  toolMode: ToolMode
+  snapAngleDeg: number | null
+  onSelectItem: (id: string) => void
 }) {
   const furniture = useRoomStore((s) => s.furniture)
   const userFurniture = useRoomStore((s) => s.userFurniture)
   const moveFurniture = useRoomStore((s) => s.moveFurniture)
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const dragPosRef = useRef(new THREE.Vector3())
+  const dragRotRef = useRef(0)
   const draggingIdRef = useRef<string | null>(null)
   const furnitureRef = useRef(furniture)
   furnitureRef.current = furniture
-  // Half-size of the item being dragged — for wall collision clamping
   const dragHalfRef = useRef({ w: 0.3, d: 0.3 })
+  const rotateStartXRef = useRef(0)
+  const rotateStartAngleRef = useRef(0)
   const { camera, gl } = useThree()
   const floorPlane = useMemo(() => new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), [])
   const raycaster = useMemo(() => new THREE.Raycaster(), [])
@@ -1150,27 +1188,35 @@ function DraggableFurnitureModels({
     )
   }
 
-  function activateDrag(item: PlacedFurniture) {
-    const entry = resolveEntry(item.furniture_id)
-    dragHalfRef.current = { w: (entry?.sizeM.w ?? 0.6) / 2, d: (entry?.sizeM.d ?? 0.6) / 2 }
-    dragPosRef.current.set(item.x / 1000, 0, item.y / 1000)
+  function activateDrag(item: PlacedFurniture, clientX: number) {
+    onSelectItem(item.id)
+    if (toolMode === 'move') {
+      const entry = resolveEntry(item.furniture_id)
+      dragHalfRef.current = { w: (entry?.sizeM.w ?? 0.6) / 2, d: (entry?.sizeM.d ?? 0.6) / 2 }
+      dragPosRef.current.set(item.x / 1000, 0, item.y / 1000)
+      document.body.style.cursor = 'grabbing'
+    } else if (toolMode === 'rotate') {
+      rotateStartXRef.current = clientX
+      rotateStartAngleRef.current = item.rotation
+      dragRotRef.current = item.rotation
+      document.body.style.cursor = 'ew-resize'
+    }
     draggingIdRef.current = item.id
     setDraggingId(item.id)
     if (controlsRef.current) controlsRef.current.enabled = false
-    document.body.style.cursor = 'grabbing'
   }
 
   function startDragFromMesh(item: PlacedFurniture, e: ThreeEvent<PointerEvent>) {
-    if (!dragEnabled) return
+    if (toolMode === 'select') return
     e.stopPropagation()
-    activateDrag(item)
+    activateDrag(item, e.clientX)
   }
 
   function startDragFromButton(item: PlacedFurniture, e: React.PointerEvent) {
-    if (!dragEnabled) return
+    if (toolMode === 'select') return
     e.stopPropagation()
     e.preventDefault()
-    activateDrag(item)
+    activateDrag(item, e.clientX)
   }
 
   function commitDrag() {
@@ -1178,7 +1224,11 @@ function DraggableFurnitureModels({
     if (!id) return
     const item = furnitureRef.current.find((f) => f.id === id)
     if (item) {
-      moveFurniture(id, dragPosRef.current.x * 1000, dragPosRef.current.z * 1000, item.rotation)
+      if (toolMode === 'move') {
+        moveFurniture(id, dragPosRef.current.x * 1000, dragPosRef.current.z * 1000, item.rotation)
+      } else if (toolMode === 'rotate') {
+        moveFurniture(id, item.x, item.y, dragRotRef.current)
+      }
     }
     draggingIdRef.current = null
     setDraggingId(null)
@@ -1191,21 +1241,30 @@ function DraggableFurnitureModels({
     const canvas = gl.domElement
 
     const handleMove = (e: PointerEvent) => {
-      const rect = canvas.getBoundingClientRect()
-      const ndc = new THREE.Vector2(
-        ((e.clientX - rect.left) / rect.width) * 2 - 1,
-        -((e.clientY - rect.top) / rect.height) * 2 + 1,
-      )
-      raycaster.setFromCamera(ndc, camera)
-      if (!raycaster.ray.intersectPlane(floorPlane, hitPoint.current)) return
-
-      // Clamp to room walls (furniture edge must not cross wall face)
-      const { w, d } = dragHalfRef.current
-      const halfW = roomW / 2
-      const halfD = roomD / 2
-      const x = Math.max(-halfW + w, Math.min(halfW - w, hitPoint.current.x))
-      const z = Math.max(-halfD + d, Math.min(halfD - d, hitPoint.current.z))
-      dragPosRef.current.set(x, 0, z)
+      if (toolMode === 'move') {
+        const rect = canvas.getBoundingClientRect()
+        const ndc = new THREE.Vector2(
+          ((e.clientX - rect.left) / rect.width) * 2 - 1,
+          -((e.clientY - rect.top) / rect.height) * 2 + 1,
+        )
+        raycaster.setFromCamera(ndc, camera)
+        if (!raycaster.ray.intersectPlane(floorPlane, hitPoint.current)) return
+        const { w, d } = dragHalfRef.current
+        const halfW = roomW / 2
+        const halfD = roomD / 2
+        const x = Math.max(-halfW + w, Math.min(halfW - w, hitPoint.current.x))
+        const z = Math.max(-halfD + d, Math.min(halfD - d, hitPoint.current.z))
+        dragPosRef.current.set(x, 0, z)
+      } else if (toolMode === 'rotate') {
+        const deltaX = e.clientX - rotateStartXRef.current
+        const rawRot = rotateStartAngleRef.current - deltaX * (Math.PI / 120)
+        if (snapAngleDeg != null && snapAngleDeg > 0) {
+          const step = snapAngleDeg * (Math.PI / 180)
+          dragRotRef.current = Math.round(rawRot / step) * step
+        } else {
+          dragRotRef.current = rawRot
+        }
+      }
     }
 
     canvas.addEventListener('pointermove', handleMove)
@@ -1215,7 +1274,7 @@ function DraggableFurnitureModels({
       window.removeEventListener('pointerup', commitDrag)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draggingId, roomW, roomD])
+  }, [draggingId, toolMode, roomW, roomD])
 
   return (
     <>
@@ -1224,8 +1283,9 @@ function DraggableFurnitureModels({
           <DraggableFurnitureItem
             item={item}
             isDragging={draggingId === item.id}
-            dragEnabled={dragEnabled}
+            toolMode={toolMode}
             dragPosRef={dragPosRef}
+            dragRotRef={dragRotRef}
             onMeshPointerDown={(e) => startDragFromMesh(item, e)}
             onButtonPointerDown={(e) => startDragFromButton(item, e)}
           />
@@ -1343,7 +1403,7 @@ export function RoomScene({
         <ContactShadows
           position={[0, 0.01, 0]}
           opacity={0.3}
-          scale={Math.max(W, D) * 2.5}
+          scale={[W, D]}
           blur={1.8}
           far={0.3}
         />
@@ -1489,7 +1549,12 @@ export default function ThreeDPage() {
   const [presetVersion, setPresetVersion] = useState(0);
   const [dpr, setDpr] = useState<number | [number, number]>([1, 2]);
   const [showContactShadows, setShowContactShadows] = useState(true);
-  const [dragEnabled, setDragEnabled] = useState(false);
+  const [toolMode, setToolMode] = useState<ToolMode>('select');
+  const [snapAngleDeg, setSnapAngleDeg] = useState<number | null>(null);
+  const [selectedFurId, setSelectedFurId] = useState<string | null>(null);
+  const [angleInputDeg, setAngleInputDeg] = useState('');
+  const furniture = useRoomStore((s) => s.furniture);
+  const moveFurniture = useRoomStore((s) => s.moveFurniture);
   const [showAddSheet, setShowAddSheet] = useState(false);
   const [addSheetSection, setAddSheetSection] = useState<"wallpaper" | "lyustra" | "furniture">("wallpaper");
   const controlsRef = useRef<OrbitControlsImpl | null>(null);
@@ -1534,33 +1599,98 @@ export default function ThreeDPage() {
               {VIEW_LABELS[v]}
             </button>
           ))}
-          <div className="ml-auto flex items-center gap-2">
-            <button
-              onClick={() => setDragEnabled((v) => !v)}
-              title={dragEnabled ? "Mebel joylashtirishni bloklash" : "Mebelni siljitish rejimi"}
-              className={`flex items-center gap-1.5 px-3 py-1 rounded-full font-medium transition-colors ${
-                dragEnabled
-                  ? "bg-brand text-white"
-                  : "bg-gray-100 hover:bg-gray-200 text-gray-600"
-              }`}
-            >
-              {dragEnabled ? (
-                <>
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M18 8h-1V6A5 5 0 0 0 7 6v2H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V10a2 2 0 0 0-2-2zm-6 9a2 2 0 1 1 0-4 2 2 0 0 1 0 4zm3.1-9H8.9V6A3.1 3.1 0 0 1 12 2.9 3.1 3.1 0 0 1 15.1 6v2z"/>
-                  </svg>
-                  Siljitish yoqiq
-                </>
-              ) : (
-                <>
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M12 17a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm6-9a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V10a2 2 0 0 1 2-2h1V6a5 5 0 0 1 9.9-1h-2.1A3 3 0 0 0 9 6v2h9z"/>
-                  </svg>
-                  Siljitish
-                </>
-              )}
-            </button>
-            <span className="text-gray-400">Drag: aylantirish · Scroll: zoom</span>
+          <div className="ml-auto flex items-center gap-1.5">
+            {/* Tool mode buttons */}
+            <div className="flex items-center bg-gray-100 rounded-full p-0.5 gap-0.5">
+              {/* Select */}
+              <button
+                onClick={() => setToolMode('select')}
+                title="Tanlash"
+                className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
+                  toolMode === 'select' ? 'bg-white shadow text-gray-800' : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M4 0l16 10.5-7 1.5 4 8-2.5 1-4-8-6.5 4.5z"/>
+                </svg>
+                Tanlash
+              </button>
+              {/* Move */}
+              <button
+                onClick={() => setToolMode('move')}
+                title="Siljitish"
+                className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
+                  toolMode === 'move' ? 'bg-brand text-white shadow' : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M11 3l-4 4h3v3H7V7l-4 4 4 4v-3h3v3H7l4 4 4-4h-3v-3h3v3l4-4-4-4v3h-3V7h3l-4-4z"/>
+                </svg>
+                Siljitish
+              </button>
+              {/* Rotate */}
+              <button
+                onClick={() => setToolMode('rotate')}
+                title="Aylantirish"
+                className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
+                  toolMode === 'rotate' ? 'bg-brand text-white shadow' : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+                  <path d="M3 3v5h5"/>
+                </svg>
+                Aylantirish
+              </button>
+            </div>
+            {/* Angle controls — visible only in rotate mode */}
+            {toolMode === 'rotate' && (
+              <div className="flex items-center gap-1 ml-1 pl-2 border-l border-gray-300">
+                <span className="text-gray-500 text-xs">Snap:</span>
+                {[45, 90, 180].map(a => (
+                  <button
+                    key={a}
+                    onClick={() => setSnapAngleDeg(snapAngleDeg === a ? null : a)}
+                    className={`px-1.5 py-0.5 rounded text-xs font-medium transition-colors ${
+                      snapAngleDeg === a ? 'bg-brand text-white' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
+                    }`}
+                  >
+                    {a}°
+                  </button>
+                ))}
+                {selectedFurId && (() => {
+                  const item = furniture.find(f => f.id === selectedFurId)
+                  if (!item) return null
+                  const currentDeg = Math.round(item.rotation * (180 / Math.PI))
+                  return (
+                    <form
+                      className="flex items-center gap-1 ml-1"
+                      onSubmit={e => {
+                        e.preventDefault()
+                        const deg = parseFloat(angleInputDeg)
+                        if (!isNaN(deg)) {
+                          moveFurniture(item.id, item.x, item.y, deg * (Math.PI / 180))
+                          setAngleInputDeg('')
+                        }
+                      }}
+                    >
+                      <input
+                        key={selectedFurId + currentDeg}
+                        type="number"
+                        defaultValue={currentDeg}
+                        onChange={e => setAngleInputDeg(e.target.value)}
+                        placeholder={`${currentDeg}°`}
+                        className="w-14 text-xs border border-gray-300 rounded px-1 py-0.5 text-center focus:outline-none focus:border-brand"
+                        title="Burchakni darajada kiriting va Enter bosing"
+                      />
+                      <span className="text-gray-400 text-xs">°</span>
+                      <button type="submit" className="text-xs px-1.5 py-0.5 bg-brand text-white rounded font-medium">✓</button>
+                    </form>
+                  )
+                })()}
+              </div>
+            )}
+            <span className="text-gray-400 text-xs ml-1">Drag: aylantirish · Scroll: zoom</span>
           </div>
         </div>
 
@@ -1672,7 +1802,7 @@ export default function ThreeDPage() {
               userLights={userLights}
             />
             <SwapButtons W={W} D={D} H={H} />
-            <DraggableFurnitureModels controlsRef={controlsRef} roomW={W} roomD={D} dragEnabled={dragEnabled} />
+            <DraggableFurnitureModels controlsRef={controlsRef} roomW={W} roomD={D} toolMode={toolMode} snapAngleDeg={snapAngleDeg} onSelectItem={setSelectedFurId} />
             <DraggableElectricalModels controlsRef={controlsRef} W={W} D={D} />
 
             <OrbitControls
