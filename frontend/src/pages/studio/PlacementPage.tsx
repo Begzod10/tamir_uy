@@ -1396,7 +1396,7 @@ function ElektrScene({ room, geometry, designState, electricals, lights, wireCon
         topView={false}
         designState={designState}
         showContactShadows={false}
-        hasUserLights={lights.length > 0}
+        hasUserLights={lights.length > 0} lightsOn={true}
       />
       {electricals.map(el => (
         <StaticElectrical3D key={el.id} el={el} W={W} D={D}/>

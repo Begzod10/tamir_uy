@@ -151,7 +151,7 @@ export default function WalkthroughPage() {
             topView={false}
             designState={designState}
             showContactShadows={false}
-            hasUserLights={lights.length > 0}
+            hasUserLights={lights.length > 0} lightsOn={true}
           />
 
           <Suspense fallback={null}>

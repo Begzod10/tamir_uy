@@ -541,27 +541,33 @@ function computeDiskLightPositions(W: number, D: number): [number, number][] {
   return positions;
 }
 
-function CeilingLightDisk({ x, z, height, intensity }: { x: number; z: number; height: number; intensity: number }) {
+function CeilingLightDisk({ x, z, height, intensity, emit = true }: {
+  x: number; z: number; height: number; intensity: number; emit?: boolean
+}) {
   return (
     <group>
-      {/* Housing ring recessed into ceiling */}
       <mesh position={[x, height - 0.009, z]}>
         <cylinderGeometry args={[0.068, 0.062, 0.018, 24]} />
         <meshStandardMaterial color="#BFBBB0" metalness={0.65} roughness={0.28} />
       </mesh>
-      {/* Emissive lens — 5500 K daylight white */}
       <mesh position={[x, height - 0.002, z]} rotation={[Math.PI / 2, 0, 0]}>
         <circleGeometry args={[0.05, 24]} />
-        <meshStandardMaterial color="#F0F8FF" emissive="#C8E8FF" emissiveIntensity={5} roughness={1} />
+        <meshStandardMaterial
+          color={emit ? "#F0F8FF" : "#707070"}
+          emissive={emit ? "#C8E8FF" : "#000000"}
+          emissiveIntensity={emit ? 5 : 0}
+          roughness={1}
+        />
       </mesh>
-      {/* Point light — 5500 K cool white */}
-      <pointLight
-        position={[x, height - 0.06, z]}
-        color="#D8EEFF"
-        intensity={intensity}
-        distance={height * 1.6}
-        decay={2}
-      />
+      {emit && (
+        <pointLight
+          position={[x, height - 0.06, z]}
+          color="#D8EEFF"
+          intensity={intensity}
+          distance={height * 1.6}
+          decay={2}
+        />
+      )}
     </group>
   );
 }
@@ -570,10 +576,10 @@ function CeilingLightDisk({ x, z, height, intensity }: { x: number; z: number; h
 // User-placed lights are rendered + made draggable by DraggableLightModels (in Canvas).
 function CeilingLights({
   width, depth, height,
-  hasUserLights,
+  hasUserLights, lightsOn,
 }: {
   width: number; depth: number; height: number;
-  hasUserLights: boolean;
+  hasUserLights: boolean; lightsOn: boolean;
 }) {
   const autoPositions = useMemo(
     () => computeDiskLightPositions(width, depth),
@@ -586,7 +592,7 @@ function CeilingLights({
   return (
     <group>
       {autoPositions.map(([x, z], i) => (
-        <CeilingLightDisk key={i} x={x} z={z} height={height} intensity={intensity} />
+        <CeilingLightDisk key={i} x={x} z={z} height={height} intensity={intensity} emit={lightsOn} />
       ))}
     </group>
   );
@@ -600,12 +606,14 @@ function DraggableLightModels({
   roomD,
   roomH,
   toolMode,
+  lightsOn,
 }: {
   controlsRef: RefObject<OrbitControlsImpl | null>
   roomW: number
   roomD: number
   roomH: number
   toolMode: ToolMode
+  lightsOn: boolean
 }) {
   const lights = useRoomStore((s) => s.lights)
   const moveLight = useRoomStore((s) => s.moveLight)
@@ -678,7 +686,7 @@ function DraggableLightModels({
         const isDragging = draggingId === l.id
         return (
           <group key={l.id}>
-            <CeilingLightDisk x={x} z={z} height={roomH} intensity={intensity} />
+            <CeilingLightDisk x={x} z={z} height={roomH} intensity={intensity} emit={lightsOn} />
             {/* Invisible drag handle on ceiling */}
             <mesh
               position={[x, roomH, z]}
@@ -929,10 +937,19 @@ function CornerShadows({ width, depth }: { width: number; depth: number }) {
 // ─── Lighting ─────────────────────────────────────────────────────────────────
 
 export function SceneLighting({ width, depth, height }: { width: number; depth: number; height: number }) {
+  const sunRef = useRef<THREE.DirectionalLight | null>(null)
+
+  // Enable layer 2 on the shadow camera so the ceiling mesh (moved to layer 2 in
+  // topView) still appears in the shadow map and blocks the sun from above.
+  useLayoutEffect(() => {
+    sunRef.current?.shadow.camera.layers.enable(2)
+  }, [])
+
   return (
     <>
       <hemisphereLight color="#FFE8CC" groundColor="#3A3020" intensity={0.8} />
       <directionalLight
+        ref={sunRef}
         position={[width * 1.5, height * 2.5, depth * 1.2]}
         intensity={1.4}
         color="#FFF5E8"
@@ -1402,6 +1419,7 @@ export function RoomScene({
   designState,
   showContactShadows,
   hasUserLights,
+  lightsOn,
 }: {
   room: Room;
   geometry: RoomGeometry;
@@ -1409,6 +1427,7 @@ export function RoomScene({
   designState: DesignState;
   showContactShadows: boolean;
   hasUserLights: boolean;
+  lightsOn: boolean;
 }) {
   const wallA = geometry.walls.find((w) => w.id === "A");
   const wallB = geometry.walls.find((w) => w.id === "B");
@@ -1456,12 +1475,22 @@ export function RoomScene({
   const elementsDOuter = resolveElementPositions(wallD?.elements ?? [], D * 1000)
     .map(el => ({ ...el, position: el.position + T_MM }));
 
+  const ceilingRef = useRef<THREE.Mesh | null>(null)
+
+  // In topView the camera must see through the ceiling, but the ceiling box must still
+  // block the directional sun (shadow map). Move it to layer 2 so the main camera
+  // ignores it while the sun's shadow camera (which has layer 2 enabled) still sees it.
+  useLayoutEffect(() => {
+    if (!ceilingRef.current) return
+    ceilingRef.current.layers.set(topView ? 2 : 0)
+  }, [topView])
+
   return (
     <group>
       <WoodFloor width={W} depth={D} floorType={designState.floorType} />
 
-      {/* Ceiling — always renders to block light; invisible to camera in topView */}
-      <mesh position={[0, H + 0.025, 0]} castShadow receiveShadow visible={!topView}>
+      {/* Ceiling — always present for shadow casting; layer 2 in topView hides from camera */}
+      <mesh ref={ceilingRef} position={[0, H + 0.025, 0]} castShadow receiveShadow>
         <boxGeometry args={[W, 0.05, D]} />
         <meshStandardMaterial color={CEILING_DEFAULT} roughness={0.95} />
       </mesh>
@@ -1485,7 +1514,7 @@ export function RoomScene({
       <WindowPanes geometry={geometry} wallWidth={W} wallDepth={D} />
       <Baseboard width={W} depth={D} geometry={geometry} />
       <CornerShadows width={W} depth={D} />
-      <CeilingLights width={W} depth={D} height={H} hasUserLights={hasUserLights} />
+      <CeilingLights width={W} depth={D} height={H} hasUserLights={hasUserLights} lightsOn={lightsOn} />
 
       {showContactShadows && (
         <ContactShadows
@@ -1638,6 +1667,7 @@ export default function ThreeDPage() {
   const [dpr, setDpr] = useState<number | [number, number]>([1, 2]);
   const [showContactShadows, setShowContactShadows] = useState(true);
   const [toolMode, setToolMode] = useState<ToolMode>('select');
+  const [lightsOn, setLightsOn] = useState(true);
   const [selectedFurId, setSelectedFurId] = useState<string | null>(null);
   const [angleInputDeg, setAngleInputDeg] = useState('');
   const furniture = useRoomStore((s) => s.furniture);
@@ -1765,6 +1795,22 @@ export default function ThreeDPage() {
                 })()}
               </div>
             )}
+            {/* Light toggle */}
+            <button
+              onClick={() => setLightsOn(v => !v)}
+              title={lightsOn ? "Chiroqni o'chirish" : "Chiroqni yoqish"}
+              className={`ml-2 flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium transition-colors border ${
+                lightsOn
+                  ? 'bg-yellow-100 text-yellow-700 border-yellow-300 hover:bg-yellow-200'
+                  : 'bg-gray-100 text-gray-400 border-gray-200 hover:bg-gray-200'
+              }`}
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M15 14c.2-1 .7-1.7 1.5-2.5C17.7 10.2 19 8.7 19 7c0-3.3-2.7-6-6-6S7 3.7 7 7c0 1.7 1.3 3.2 2.5 4.5.8.8 1.3 1.5 1.5 2.5"/>
+                <path d="M9 18h6M10 22h4"/>
+              </svg>
+              {lightsOn ? 'Yoqilgan' : "O'chirilgan"}
+            </button>
             <span className="text-gray-400 text-xs ml-1">Drag: aylantirish · Scroll: zoom</span>
           </div>
         </div>
@@ -1889,11 +1935,12 @@ export default function ThreeDPage() {
               designState={designState}
               showContactShadows={showContactShadows}
               hasUserLights={userLights.length > 0}
+              lightsOn={lightsOn}
             />
             <SwapButtons W={W} D={D} H={H} />
             <DraggableFurnitureModels controlsRef={controlsRef} roomW={W} roomD={D} toolMode={toolMode} onSelectItem={setSelectedFurId} />
             <DraggableElectricalModels controlsRef={controlsRef} W={W} D={D} />
-            <DraggableLightModels controlsRef={controlsRef} roomW={W} roomD={D} roomH={H} toolMode={toolMode} />
+            <DraggableLightModels controlsRef={controlsRef} roomW={W} roomD={D} roomH={H} toolMode={toolMode} lightsOn={lightsOn} />
 
             <OrbitControls
               ref={controlsRef}
