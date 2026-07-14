@@ -1154,14 +1154,12 @@ function DraggableFurnitureModels({
   roomW,
   roomD,
   toolMode,
-  snapAngleDeg,
   onSelectItem,
 }: {
   controlsRef: RefObject<OrbitControlsImpl | null>
   roomW: number
   roomD: number
   toolMode: ToolMode
-  snapAngleDeg: number | null
   onSelectItem: (id: string) => void
 }) {
   const furniture = useRoomStore((s) => s.furniture)
@@ -1258,12 +1256,8 @@ function DraggableFurnitureModels({
       } else if (toolMode === 'rotate') {
         const deltaX = e.clientX - rotateStartXRef.current
         const rawRot = rotateStartAngleRef.current - deltaX * (Math.PI / 120)
-        if (snapAngleDeg != null && snapAngleDeg > 0) {
-          const step = snapAngleDeg * (Math.PI / 180)
-          dragRotRef.current = Math.round(rawRot / step) * step
-        } else {
-          dragRotRef.current = rawRot
-        }
+        const step = 5 * (Math.PI / 180)
+        dragRotRef.current = Math.round(rawRot / step) * step
       }
     }
 
@@ -1550,7 +1544,6 @@ export default function ThreeDPage() {
   const [dpr, setDpr] = useState<number | [number, number]>([1, 2]);
   const [showContactShadows, setShowContactShadows] = useState(true);
   const [toolMode, setToolMode] = useState<ToolMode>('select');
-  const [snapAngleDeg, setSnapAngleDeg] = useState<number | null>(null);
   const [selectedFurId, setSelectedFurId] = useState<string | null>(null);
   const [angleInputDeg, setAngleInputDeg] = useState('');
   const furniture = useRoomStore((s) => s.furniture);
@@ -1646,18 +1639,6 @@ export default function ThreeDPage() {
             {/* Angle controls — visible only in rotate mode */}
             {toolMode === 'rotate' && (
               <div className="flex items-center gap-1 ml-1 pl-2 border-l border-gray-300">
-                <span className="text-gray-500 text-xs">Snap:</span>
-                {[45, 90, 180].map(a => (
-                  <button
-                    key={a}
-                    onClick={() => setSnapAngleDeg(snapAngleDeg === a ? null : a)}
-                    className={`px-1.5 py-0.5 rounded text-xs font-medium transition-colors ${
-                      snapAngleDeg === a ? 'bg-brand text-white' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
-                    }`}
-                  >
-                    {a}°
-                  </button>
-                ))}
                 {selectedFurId && (() => {
                   const item = furniture.find(f => f.id === selectedFurId)
                   if (!item) return null
@@ -1802,7 +1783,7 @@ export default function ThreeDPage() {
               userLights={userLights}
             />
             <SwapButtons W={W} D={D} H={H} />
-            <DraggableFurnitureModels controlsRef={controlsRef} roomW={W} roomD={D} toolMode={toolMode} snapAngleDeg={snapAngleDeg} onSelectItem={setSelectedFurId} />
+            <DraggableFurnitureModels controlsRef={controlsRef} roomW={W} roomD={D} toolMode={toolMode} onSelectItem={setSelectedFurId} />
             <DraggableElectricalModels controlsRef={controlsRef} W={W} D={D} />
 
             <OrbitControls
