@@ -49,6 +49,8 @@ export interface PlacedFurniture {
   x: number
   y: number
   rotation: number
+  /** Uniform scale multiplier (1.0 = catalog default size). */
+  scaleOverride?: number
   /** Per-material color tints (material name → hex). '*' = wildcard for all materials. */
   colorOverrides?: Record<string, string>
 }
@@ -157,6 +159,7 @@ interface RoomStore {
   applySurface(wallId: string, materialId: string): void
   placeFurniture(item: PlacedFurniture): void
   moveFurniture(id: string, x: number, y: number, rotation: number): void
+  resizeFurniture(id: string, scaleOverride: number): void
   removeFurniture(id: string): void
   setFurnitureColors(id: string, overrides: Record<string, string>): void
   addElectrical(e: PlacedElectrical): void
@@ -338,6 +341,15 @@ export const useRoomStore = create<RoomStore>()(
       isDirty: true,
       furniture: state.furniture.map((f) =>
         f.id === id ? { ...f, x, y, rotation } : f,
+      ),
+    }))
+  },
+
+  resizeFurniture(id, scaleOverride) {
+    set((state) => ({
+      isDirty: true,
+      furniture: state.furniture.map((f) =>
+        f.id === id ? { ...f, scaleOverride } : f,
       ),
     }))
   },

@@ -95,7 +95,7 @@ export function DesignPanel({ room, phase, selectedWall, onWallChange }: {
   useRestoreUserModels()
 
   const { designState, setDesignState, setWallCovering, setWallPanel, geometry, ceilingHeight,
-          furniture, placeFurniture, removeFurniture, setFurnitureColors,
+          furniture, placeFurniture, removeFurniture, setFurnitureColors, resizeFurniture,
           userFurniture, removeUserFurniture } =
     useRoomStore();
 
@@ -558,67 +558,77 @@ export function DesignPanel({ room, phase, selectedWall, onWallChange }: {
     </section>
   )
 
+  const allCatalogEntries = [
+    ...FURNITURE_CATALOG.map(e => ({ ...e, isUser: false as const })),
+    ...userFurniture.map(e => ({ ...e, isUser: true as const })),
+  ]
+
   const MebelSection = (
     <section>
-      <h3 className="text-sm font-semibold text-gray-900 mb-3">Mebel</h3>
+      <h3 className="text-sm font-semibold text-gray-900 mb-3">3D Modellar</h3>
 
-      <div className="space-y-2 mb-3">
-        {FURNITURE_CATALOG.map((entry) => {
+      {/* Full catalog grid */}
+      <div className="grid grid-cols-2 gap-2 mb-3">
+        {allCatalogEntries.map((entry) => {
           const count = furniture.filter((f) => f.furniture_id === entry.id).length;
+          const ready = !entry.isUser || !!entry.modelPath;
           return (
-            <div key={entry.id} className="flex items-center gap-2 p-2 border border-gray-200 rounded-card">
-              <span className="text-2xl">{entry.emoji}</span>
-              <div className="flex-1 min-w-0">
-                <p className="text-xs font-semibold text-gray-900 truncate">{entry.name}</p>
-                <p className="text-xs text-gray-400">{entry.sizeM.w}×{entry.sizeM.d} m</p>
+            <div
+              key={entry.id}
+              className={`relative flex flex-col rounded-xl border-2 overflow-hidden transition-all
+                ${count > 0 ? 'border-brand shadow-sm' : 'border-gray-200 hover:border-brand/40'}`}
+            >
+              {/* Thumbnail */}
+              <div className="bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center h-20 text-4xl select-none">
+                {entry.emoji}
+                {entry.isUser && !entry.modelPath && (
+                  <span className="absolute top-1 right-1 text-[9px] bg-amber-100 text-amber-600 px-1 rounded">yüklanmoqda</span>
+                )}
+                {entry.isUser && !('hasTextures' in entry && entry.hasTextures) && entry.modelPath && (
+                  <span className="absolute top-1 right-1 text-[9px]" title="Tekstura yo'q">⚠️</span>
+                )}
               </div>
-              {count > 0 && <span className="text-xs font-bold text-brand">{count}×</span>}
-              <button
-                onClick={() => placeFurniture({ id: nanoid(), furniture_id: entry.id, x: (count * 300) % 1000, y: (count * 300) % 1000, rotation: 0 })}
-                className="w-7 h-7 rounded-full bg-brand/10 hover:bg-brand/20 text-brand font-bold text-base flex items-center justify-center shrink-0 transition-colors"
-                title="Qo'shish"
-              >+</button>
-            </div>
-          );
-        })}
-      </div>
 
-      {userFurniture.length > 0 && (
-        <div className="space-y-2 mb-3">
-          <p className="text-xs text-gray-500 font-medium">Yuklangan modellar:</p>
-          {userFurniture.map((entry) => {
-            const count = furniture.filter((f) => f.furniture_id === entry.id).length;
-            const ready = !!entry.modelPath;
-            return (
-              <div key={entry.id} className={`flex items-center gap-2 p-2 border rounded-card ${ready ? 'border-gray-200' : 'border-gray-100 opacity-60'}`}>
-                <span className="text-2xl">{entry.emoji}</span>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-1">
-                    <p className="text-xs font-semibold text-gray-900 truncate">{entry.name}</p>
-                    {!entry.hasTextures && <span className="text-xs text-amber-500" title="Tekstura yo'q">⚠</span>}
-                  </div>
-                  <p className="text-xs text-gray-400">{entry.sizeM.w}×{entry.sizeM.d} m</p>
-                </div>
-                {count > 0 && <span className="text-xs font-bold text-brand">{count}×</span>}
+              {/* Info */}
+              <div className="px-2 py-1.5 flex-1">
+                <p className="text-[11px] font-semibold text-gray-900 leading-tight line-clamp-2">{entry.name}</p>
+                <p className="text-[10px] text-gray-400 mt-0.5">{entry.sizeM.w}×{entry.sizeM.d} m</p>
+              </div>
+
+              {/* Count badge */}
+              {count > 0 && (
+                <span className="absolute top-1 left-1 bg-brand text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none">
+                  {count}×
+                </span>
+              )}
+
+              {/* Actions row */}
+              <div className="flex border-t border-gray-100">
                 <button
                   onClick={() => ready && placeFurniture({ id: nanoid(), furniture_id: entry.id, x: (count * 300) % 1000, y: (count * 300) % 1000, rotation: 0 })}
                   disabled={!ready}
-                  className="w-7 h-7 rounded-full bg-brand/10 hover:bg-brand/20 text-brand font-bold text-base flex items-center justify-center shrink-0 transition-colors disabled:opacity-40"
+                  className="flex-1 py-1.5 text-brand text-sm font-bold hover:bg-brand/5 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                   title="Qo'shish"
-                >+</button>
-                <button
-                  onClick={() => removeUserFurniture(entry.id)}
-                  className="w-5 h-5 flex items-center justify-center text-gray-300 hover:text-red-400 transition-colors text-xs"
-                  title="Modelni o'chirish"
-                >✕</button>
+                >
+                  + Qo'shish
+                </button>
+                {entry.isUser && (
+                  <button
+                    onClick={() => removeUserFurniture(entry.id)}
+                    className="px-2 border-l border-gray-100 text-gray-300 hover:text-red-400 transition-colors text-xs"
+                    title="Modelni o'chirish"
+                  >✕</button>
+                )}
               </div>
-            );
-          })}
-        </div>
-      )}
+            </div>
+          );
+        })}
 
-      {/* GLB import — secondary action */}
-      <ModelImportButton />
+        {/* Upload card */}
+        <div className="flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-gray-200 hover:border-brand/40 transition-colors h-full min-h-[130px]">
+          <ModelImportButton compact />
+        </div>
+      </div>
 
       {furniture.length > 0 && (
         <div className="mt-3 space-y-1">
@@ -630,11 +640,14 @@ export function DesignPanel({ room, phase, selectedWall, onWallChange }: {
             const slots = staticEntry?.materialSlots ?? null;
             const isEditing = colorEditorId === f.id;
             const hasOverrides = f.colorOverrides && Object.keys(f.colorOverrides).length > 0;
+            const so = f.scaleOverride ?? 1;
+            const actualW = ((entry?.sizeM.w ?? 0) * so).toFixed(2);
+            const actualD = ((entry?.sizeM.d ?? 0) * so).toFixed(2);
             return (
-              <div key={f.id}>
-                <div className="flex items-center gap-2 text-xs py-1 border-b border-gray-100">
+              <div key={f.id} className="border border-gray-100 rounded-lg overflow-hidden mb-1">
+                <div className="flex items-center gap-2 text-xs px-2 py-1.5 bg-gray-50">
                   <span>{entry?.emoji ?? '📦'}</span>
-                  <span className="flex-1 text-gray-700 truncate">{entry?.name ?? 'Model'}</span>
+                  <span className="flex-1 text-gray-700 truncate font-medium">{entry?.name ?? 'Model'}</span>
                   <button
                     onClick={() => setColorEditorId(isEditing ? null : f.id)}
                     title="Rang o'zgartirish"
@@ -642,8 +655,39 @@ export function DesignPanel({ room, phase, selectedWall, onWallChange }: {
                   >🎨</button>
                   <button onClick={() => removeFurniture(f.id)} className="text-gray-400 hover:text-red-500 transition-colors text-sm leading-none" title="O'chirish">✕</button>
                 </div>
+
+                {/* Resize slider — always visible */}
+                <div className="px-2 py-1.5 space-y-0.5">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[10px] text-gray-400">O'lcham</label>
+                    <span className="text-[10px] text-gray-500 font-medium tabular-nums">
+                      {actualW}×{actualD} m ({Math.round(so * 100)}%)
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[9px] text-gray-300">50%</span>
+                    <input
+                      type="range"
+                      min={50}
+                      max={200}
+                      step={5}
+                      value={Math.round(so * 100)}
+                      onChange={(e) => resizeFurniture(f.id, Number(e.target.value) / 100)}
+                      className="flex-1 h-1.5 accent-brand cursor-pointer"
+                    />
+                    <span className="text-[9px] text-gray-300">200%</span>
+                    {so !== 1 && (
+                      <button
+                        onClick={() => resizeFurniture(f.id, 1)}
+                        className="text-[9px] text-gray-400 hover:text-brand transition-colors"
+                        title="Asl o'lchamga qaytarish"
+                      >↺</button>
+                    )}
+                  </div>
+                </div>
+
                 {isEditing && (
-                  <div className="pl-2 py-1.5 space-y-1.5 bg-gray-50 rounded-b">
+                  <div className="px-2 py-1.5 space-y-1.5 bg-gray-50 border-t border-gray-100">
                     {slots ? slots.map((slot) => {
                       const current = f.colorOverrides?.[slot.name] ?? '#ffffff';
                       return (
@@ -690,7 +734,7 @@ export function DesignPanel({ room, phase, selectedWall, onWallChange }: {
   )
 
   return (
-    <aside className="w-72 shrink-0 bg-surface border-l border-gray-200 overflow-y-auto">
+    <aside className="w-full lg:w-72 lg:shrink-0 bg-surface border-l border-gray-200 overflow-y-auto" style={{ maxHeight: 'inherit' }}>
       <div className="p-4 space-y-5">
 
         {phase === 'boyoq' && WallSection}

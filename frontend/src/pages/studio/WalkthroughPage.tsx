@@ -142,7 +142,7 @@ export default function WalkthroughPage() {
         <color attach="background" args={["#E8E4DC"]} />
 
         <Suspense fallback={null}>
-          <SceneLighting width={roomW} depth={roomD} height={roomH} />
+          <SceneLighting width={roomW} depth={roomD} height={roomH} highQuality={true} />
           <Environment preset="apartment" environmentIntensity={0.3} />
 
           <RoomScene

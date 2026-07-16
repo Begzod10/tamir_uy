@@ -363,12 +363,15 @@ function RoomGeometry({
           const tex = surfaceTextures("floor", "parquet");
           tex.map.repeat.set(tex.repeat[0], tex.repeat[1]);
           tex.roughnessMap.repeat.set(tex.repeat[0], tex.repeat[1]);
+          tex.normalMap.repeat.set(tex.repeat[0], tex.repeat[1]);
           const baseColor = wallColor("floor", "#C4A27A");
           return (
             <meshStandardMaterial
               color={selectedSurface === "floor" ? baseColor : baseColor}
               map={tex.map}
               roughnessMap={tex.roughnessMap}
+              normalMap={tex.normalMap}
+              normalScale={new THREE.Vector2(0.6, 0.6)}
               roughness={tex.roughness}
               metalness={tex.metalness}
               envMapIntensity={1.5}

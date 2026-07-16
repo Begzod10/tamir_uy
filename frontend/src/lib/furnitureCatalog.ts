@@ -32,4 +32,17 @@ export const FURNITURE_CATALOG: FurnitureCatalogEntry[] = [
       { name: 'wire_086086086', label: 'Metal' },
     ],
   },
+  {
+    id: 'couch_84',
+    name: "Uch o'rinli divan",
+    emoji: '🛋️',
+    modelPath: '/models/couch_84.glb',
+    dracoPath: '',
+    scale: 1,
+    sizeM: { w: 2.10, d: 0.90, h: 0.80 },
+    materialSlots: [
+      { name: 'Fabric', label: 'Mato' },
+      { name: 'Wood', label: "Yog'och" },
+    ],
+  },
 ]

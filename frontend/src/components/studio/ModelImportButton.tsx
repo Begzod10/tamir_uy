@@ -5,7 +5,7 @@ import { saveModelToDb, arrayBufferToBlobUrl } from '@/lib/modelDb'
 import { useRoomStore } from '@/store/roomStore'
 import { useGLTF } from '@react-three/drei'
 
-export function ModelImportButton() {
+export function ModelImportButton({ compact = false }: { compact?: boolean }) {
   const fileRef = React.useRef<HTMLInputElement>(null)
   const [status, setStatus] = React.useState<'idle' | 'loading' | 'done' | 'error'>('idle')
   const [warn, setWarn] = React.useState<string | null>(null)
@@ -55,6 +55,33 @@ export function ModelImportButton() {
       setStatus('error')
       setWarn('Faylni o\'qishda xatolik yuz berdi.')
     }
+  }
+
+  if (compact) {
+    return (
+      <>
+        <input
+          ref={fileRef}
+          type="file"
+          accept=".glb"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0]
+            if (f) { handleFile(f); e.target.value = '' }
+          }}
+        />
+        <button
+          onClick={() => fileRef.current?.click()}
+          disabled={status === 'loading'}
+          className="flex flex-col items-center gap-1 text-gray-400 hover:text-brand transition-colors px-3 py-2"
+        >
+          <span className="text-2xl">{status === 'loading' ? '⏳' : status === 'done' ? '✅' : '+'}</span>
+          <span className="text-[10px] font-medium text-center leading-tight">
+            {status === 'loading' ? 'Yuklanmoqda' : status === 'done' ? 'Qo\'shildi' : 'GLB yuklash'}
+          </span>
+        </button>
+      </>
+    )
   }
 
   return (

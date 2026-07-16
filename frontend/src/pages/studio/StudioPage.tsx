@@ -243,8 +243,8 @@ export default function StudioPage() {
           </NavLink>
           {/* Title + dims */}
           <div className="flex-1 min-w-0 text-center">
-            <p className="text-[20px] font-extrabold text-gray-900 truncate">{room.name}</p>
-            <p className="text-[12px] text-muted">
+            <p className="text-[16px] sm:text-[20px] font-extrabold text-gray-900 truncate">{room.name}</p>
+            <p className="text-[11px] text-muted hidden sm:block">
               {room.length?.toFixed(1)} × {room.width?.toFixed(1)} × {room.ceiling_height?.toFixed(1)} m
             </p>
           </div>

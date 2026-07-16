@@ -11,9 +11,10 @@ export type MaterialTextureKey =
   | 'concrete'
   | 'paint'
 
-interface TextureSet {
+export interface TextureSet {
   map: THREE.CanvasTexture
   roughnessMap: THREE.CanvasTexture
+  normalMap: THREE.CanvasTexture
   roughness: number
   metalness: number
   repeat: [number, number]
@@ -35,6 +36,50 @@ function canvasToTexture(canvas: HTMLCanvasElement): THREE.CanvasTexture {
   tex.wrapT = THREE.RepeatWrapping
   tex.colorSpace = THREE.SRGBColorSpace
   tex.anisotropy = 8
+  return tex
+}
+
+// ─── Sobel normal map generator ──────────────────────────────────────────────
+
+function normalMapFromHeight(
+  drawHeight: (ctx: CanvasRenderingContext2D, size: number) => void,
+  size: number,
+  scale = 3.0,
+): THREE.CanvasTexture {
+  const [, hctx] = makeCanvas(size)
+  drawHeight(hctx, size)
+  const src = hctx.getImageData(0, 0, size, size).data
+
+  const [oc, octx] = makeCanvas(size)
+  const out = octx.createImageData(size, size)
+
+  const get = (x: number, y: number) => {
+    const px = ((x % size) + size) % size
+    const py = ((y % size) + size) % size
+    return src[(py * size + px) * 4] / 255
+  }
+
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const tl = get(x - 1, y - 1); const tc = get(x, y - 1); const tr = get(x + 1, y - 1)
+      const ml = get(x - 1, y);                                  const mr = get(x + 1, y)
+      const bl = get(x - 1, y + 1); const bc = get(x, y + 1); const br = get(x + 1, y + 1)
+
+      const gx = (-tl - 2 * ml - bl + tr + 2 * mr + br) * scale
+      const gy = (-tl - 2 * tc - tr + bl + 2 * bc + br) * scale
+
+      const i = (y * size + x) * 4
+      out.data[i]     = Math.max(0, Math.min(255, Math.round(gx * 127.5 + 128)))
+      out.data[i + 1] = Math.max(0, Math.min(255, Math.round(gy * 127.5 + 128)))
+      out.data[i + 2] = 255
+      out.data[i + 3] = 255
+    }
+  }
+  octx.putImageData(out, 0, 0)
+
+  const tex = new THREE.CanvasTexture(oc)
+  tex.wrapS = THREE.RepeatWrapping
+  tex.wrapT = THREE.RepeatWrapping
   return tex
 }
 
@@ -222,6 +267,63 @@ function drawPaintRoughness(size: number): THREE.CanvasTexture {
   return canvasToTexture(c)
 }
 
+// ─── Height-map drawers for normal-map generation ────────────────────────────
+
+function heightParquet(ctx: CanvasRenderingContext2D, size: number) {
+  ctx.fillStyle = '#CCCCCC'
+  ctx.fillRect(0, 0, size, size)
+  const plankW = size / 4
+  const plankH = size / 2
+  for (let row = 0; row < 4; row++) {
+    for (let col = 0; col < 4; col++) {
+      const offset = row % 2 === 0 ? 0 : plankH / 2
+      const x = col * plankW
+      const y = row * (plankH / 2) - offset
+      ctx.fillStyle = '#BBBBBB'
+      ctx.fillRect(x + 1, y + 1, plankW - 2, plankH - 2)
+      ctx.fillStyle = '#888888'
+      ctx.fillRect(x, y, plankW, 1)
+      ctx.fillRect(x, y, 1, plankH)
+    }
+  }
+}
+
+function heightTileCeramic(ctx: CanvasRenderingContext2D, size: number) {
+  const tileSize = size / 4
+  ctx.fillStyle = '#999999'
+  ctx.fillRect(0, 0, size, size)
+  for (let r = 0; r < 4; r++) {
+    for (let c = 0; c < 4; c++) {
+      ctx.fillStyle = '#DDDDDD'
+      ctx.fillRect(c * tileSize + 2, r * tileSize + 2, tileSize - 4, tileSize - 4)
+    }
+  }
+}
+
+function heightPlaster(ctx: CanvasRenderingContext2D, size: number) {
+  ctx.fillStyle = '#AAAAAA'
+  ctx.fillRect(0, 0, size, size)
+  addGrain(ctx, size, 0.35)
+}
+
+function heightConcrete(ctx: CanvasRenderingContext2D, size: number) {
+  ctx.fillStyle = '#999999'
+  ctx.fillRect(0, 0, size, size)
+  for (let i = 0; i < 18; i++) {
+    const y = (Math.sin(i * 43.3) * 0.5 + 0.5) * size
+    ctx.strokeStyle = `rgba(0,0,0,${0.06 + (i % 3) * 0.03})`
+    ctx.lineWidth = 1 + Math.sin(i * 7.3) * 0.5
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(size, y + 4); ctx.stroke()
+  }
+  addGrain(ctx, size, 0.12)
+}
+
+function heightPaint(ctx: CanvasRenderingContext2D, size: number) {
+  ctx.fillStyle = '#BBBBBB'
+  ctx.fillRect(0, 0, size, size)
+  addGrain(ctx, size, 0.06)
+}
+
 // ─── Colour math ──────────────────────────────────────────────────────────────
 
 function hexToRgb(hex: string): [number, number, number] {
@@ -251,7 +353,8 @@ function buildTextureSet(key: MaterialTextureKey): TextureSet {
       return {
         map: drawParquetMap(SIZE, '#B8894E'),
         roughnessMap: drawParquetRoughness(SIZE),
-        roughness: 0.55,
+        normalMap: normalMapFromHeight(heightParquet, SIZE, 2.5),
+        roughness: 0.48,
         metalness: 0.02,
         repeat: [2, 2],
       }
@@ -259,7 +362,8 @@ function buildTextureSet(key: MaterialTextureKey): TextureSet {
       return {
         map: drawParquetHerringboneMap(SIZE),
         roughnessMap: drawParquetRoughness(SIZE),
-        roughness: 0.55,
+        normalMap: normalMapFromHeight(heightParquet, SIZE, 2.5),
+        roughness: 0.48,
         metalness: 0.02,
         repeat: [2.5, 2.5],
       }
@@ -267,7 +371,8 @@ function buildTextureSet(key: MaterialTextureKey): TextureSet {
       return {
         map: drawTileCeramicMap(SIZE),
         roughnessMap: drawTileCeramicRoughness(SIZE),
-        roughness: 0.18,
+        normalMap: normalMapFromHeight(heightTileCeramic, SIZE, 4.0),
+        roughness: 0.16,
         metalness: 0.02,
         repeat: [3, 3],
       }
@@ -275,7 +380,8 @@ function buildTextureSet(key: MaterialTextureKey): TextureSet {
       return {
         map: drawTileMarbleMap(SIZE),
         roughnessMap: drawTileCeramicRoughness(SIZE),
-        roughness: 0.12,
+        normalMap: normalMapFromHeight(heightTileCeramic, SIZE, 2.0),
+        roughness: 0.10,
         metalness: 0.03,
         repeat: [2, 2],
       }
@@ -283,7 +389,8 @@ function buildTextureSet(key: MaterialTextureKey): TextureSet {
       return {
         map: drawPlasterMap(SIZE),
         roughnessMap: drawPlasterRoughness(SIZE),
-        roughness: 0.88,
+        normalMap: normalMapFromHeight(heightPlaster, SIZE, 1.5),
+        roughness: 0.86,
         metalness: 0.0,
         repeat: [3, 2],
       }
@@ -291,7 +398,8 @@ function buildTextureSet(key: MaterialTextureKey): TextureSet {
       return {
         map: drawConcreteMap(SIZE),
         roughnessMap: drawPlasterRoughness(SIZE),
-        roughness: 0.92,
+        normalMap: normalMapFromHeight(heightConcrete, SIZE, 2.0),
+        roughness: 0.90,
         metalness: 0.01,
         repeat: [2, 2],
       }
@@ -299,7 +407,8 @@ function buildTextureSet(key: MaterialTextureKey): TextureSet {
       return {
         map: drawPaintMap(SIZE),
         roughnessMap: drawPaintRoughness(SIZE),
-        roughness: 0.82,
+        normalMap: normalMapFromHeight(heightPaint, SIZE, 0.8),
+        roughness: 0.80,
         metalness: 0.0,
         repeat: [4, 3],
       }
@@ -318,6 +427,7 @@ export function disposeMaterialTextures(key: MaterialTextureKey) {
   if (!set) return
   set.map.dispose()
   set.roughnessMap.dispose()
+  set.normalMap.dispose()
   textureCache.delete(key)
 }
 

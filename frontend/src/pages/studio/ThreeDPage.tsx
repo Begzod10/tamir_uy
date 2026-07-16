@@ -4,6 +4,7 @@ import {
   OrbitControls,
   Environment,
   ContactShadows,
+  SoftShadows,
   PerformanceMonitor,
   Html,
   useGLTF,
@@ -719,8 +720,8 @@ function computeDiskLightPositions(W: number, D: number): [number, number][] {
   return positions;
 }
 
-function CeilingLightDisk({ x, z, height, intensity, emit = true }: {
-  x: number; z: number; height: number; intensity: number; emit?: boolean
+function CeilingLightDisk({ x, z, height, emit = true }: {
+  x: number; z: number; height: number; emit?: boolean
 }) {
   return (
     <group>
@@ -737,15 +738,6 @@ function CeilingLightDisk({ x, z, height, intensity, emit = true }: {
           roughness={1}
         />
       </mesh>
-      {emit && (
-        <pointLight
-          position={[x, height - 0.06, z]}
-          color="#D8EEFF"
-          intensity={intensity}
-          distance={height * 1.6}
-          decay={2}
-        />
-      )}
     </group>
   );
 }
@@ -766,11 +758,26 @@ function CeilingLights({
 
   if (hasUserLights) return null;
 
-  const intensity = Math.max(0.15, 1.8 / autoPositions.length);
+  // Visual fixtures — all disks show emissive glow
+  // Real lights capped at 2 regardless of fixture count (performance)
+  const poolPositions = autoPositions.slice(0, Math.min(2, autoPositions.length));
+  const poolIntensity = 1.6 / Math.max(1, poolPositions.length);
+  const spread = Math.max(width, depth) * 1.9;
+
   return (
     <group>
       {autoPositions.map(([x, z], i) => (
-        <CeilingLightDisk key={i} x={x} z={z} height={height} intensity={intensity} emit={lightsOn} />
+        <CeilingLightDisk key={i} x={x} z={z} height={height} emit={lightsOn} />
+      ))}
+      {lightsOn && poolPositions.map(([x, z], i) => (
+        <pointLight
+          key={`auto-pool-${i}`}
+          position={[x, height - 0.06, z]}
+          color="#D8EEFF"
+          intensity={poolIntensity}
+          distance={spread}
+          decay={2}
+        />
       ))}
     </group>
   );
@@ -805,7 +812,12 @@ function DraggableLightModels({
   const raycaster = useMemo(() => new THREE.Raycaster(), [])
   const hitPoint = useRef(new THREE.Vector3())
 
-  const intensity = Math.max(0.15, 1.8 / lights.length)
+  const poolPositions = useMemo(() => {
+    if (!lightsOn || lights.length === 0) return []
+    return lights.slice(0, Math.min(2, lights.length))
+  }, [lights, lightsOn])
+  const poolIntensity = 1.4 / Math.max(1, poolPositions.length)
+  const spread = Math.max(roomW, roomD) * 1.9
 
   function startDrag(light: PlacedLight, e: ThreeEvent<PointerEvent>) {
     if (toolMode === 'select') return
@@ -864,7 +876,7 @@ function DraggableLightModels({
         const isDragging = draggingId === l.id
         return (
           <group key={l.id}>
-            <CeilingLightDisk x={x} z={z} height={roomH} intensity={intensity} emit={lightsOn} />
+            <CeilingLightDisk x={x} z={z} height={roomH} emit={lightsOn} />
             {/* Invisible drag handle on ceiling */}
             <mesh
               position={[x, roomH, z]}
@@ -877,6 +889,21 @@ function DraggableLightModels({
               <meshBasicMaterial transparent opacity={0} />
             </mesh>
           </group>
+        )
+      })}
+      {/* At most 2 pooled point lights regardless of fixture count */}
+      {poolPositions.map((l, i) => {
+        const x = l.xMm / 1000 - roomW / 2
+        const z = l.zMm / 1000 - roomD / 2
+        return (
+          <pointLight
+            key={`user-pool-${i}`}
+            position={[x, roomH - 0.06, z]}
+            color="#D8EEFF"
+            intensity={poolIntensity}
+            distance={spread}
+            decay={2}
+          />
         )
       })}
     </>
@@ -1115,7 +1142,11 @@ function CornerShadows({ width, depth }: { width: number; depth: number }) {
 
 // ─── Lighting ─────────────────────────────────────────────────────────────────
 
-export function SceneLighting({ width, depth, height }: { width: number; depth: number; height: number }) {
+export function SceneLighting({
+  width, depth, height, highQuality,
+}: {
+  width: number; depth: number; height: number; highQuality: boolean
+}) {
   const sunRef = useRef<THREE.DirectionalLight | null>(null)
 
   // Enable layer 2 on the shadow camera so the ceiling mesh (moved to layer 2 in
@@ -1124,22 +1155,29 @@ export function SceneLighting({ width, depth, height }: { width: number; depth: 
     sunRef.current?.shadow.camera.layers.enable(2)
   }, [])
 
+  // Frustum fitted tightly to the room so shadow texels aren't wasted
+  const hw = width / 2 + 1.2
+  const hd = depth / 2 + 1.2
+  const mapSize = highQuality ? 2048 : 1024
+
   return (
     <>
-      <hemisphereLight color="#FFE8CC" groundColor="#3A3020" intensity={0.8} />
+      {highQuality && <SoftShadows size={22} samples={10} focus={0} />}
+      {/* Low-intensity sky fill — dominant light is the directional sun */}
+      <hemisphereLight color="#FFE8CC" groundColor="#3A3020" intensity={0.22} />
       <directionalLight
         ref={sunRef}
         position={[width * 1.5, height * 2.5, depth * 1.2]}
-        intensity={1.4}
+        intensity={1.85}
         color="#FFF5E8"
         castShadow
-        shadow-mapSize={[2048, 2048]}
+        shadow-mapSize={[mapSize, mapSize]}
         shadow-camera-near={0.1}
         shadow-camera-far={40}
-        shadow-camera-left={-8}
-        shadow-camera-right={8}
-        shadow-camera-top={8}
-        shadow-camera-bottom={-8}
+        shadow-camera-left={-hw}
+        shadow-camera-right={hw}
+        shadow-camera-top={hd}
+        shadow-camera-bottom={-hd}
         shadow-bias={-0.001}
       />
     </>
@@ -1302,12 +1340,13 @@ function FurnitureItem({ item }: { item: PlacedFurniture }) {
   }, [cloned, item.colorOverrides])
 
   if (!entry || !modelPath) return null;
+  const s = entry.scale * (item.scaleOverride ?? 1);
   return (
     <primitive
       object={cloned}
       position={[item.x / 1000, 0, item.y / 1000]}
       rotation={[0, item.rotation, 0]}
-      scale={entry.scale}
+      scale={s}
     />
   );
 }
@@ -1377,7 +1416,8 @@ function DraggableFurnitureItem({
   if (!entry || !modelPath) return null
 
   const interactive = toolMode !== 'select'
-  const buttonH = (entry.sizeM.h ?? 1) + 0.18
+  const so = item.scaleOverride ?? 1
+  const buttonH = (entry.sizeM.h ?? 1) * so + 0.18
   const btnActive = isDragging
 
   return (
@@ -1386,7 +1426,7 @@ function DraggableFurnitureItem({
         ref={primitiveRef}
         object={cloned}
         rotation={[0, item.rotation, 0]}
-        scale={entry.scale}
+        scale={entry.scale * (item.scaleOverride ?? 1)}
         onPointerDown={interactive ? onMeshPointerDown : undefined}
         onPointerEnter={() => { if (interactive) document.body.style.cursor = toolMode === 'rotate' ? 'ew-resize' : 'grab' }}
         onPointerLeave={() => { if (!isDragging) document.body.style.cursor = '' }}
@@ -1479,7 +1519,8 @@ function DraggableFurnitureModels({
     onSelectItem(item.id)
     if (toolMode === 'move') {
       const entry = resolveEntry(item.furniture_id)
-      dragHalfRef.current = { w: (entry?.sizeM.w ?? 0.6) / 2, d: (entry?.sizeM.d ?? 0.6) / 2 }
+      const so = item.scaleOverride ?? 1
+      dragHalfRef.current = { w: (entry?.sizeM.w ?? 0.6) * so / 2, d: (entry?.sizeM.d ?? 0.6) * so / 2 }
       dragPosRef.current.set(item.x / 1000, 0, item.y / 1000)
       document.body.style.cursor = 'grabbing'
     } else if (toolMode === 'rotate') {
@@ -1998,7 +2039,7 @@ const RENO_STAGES: Array<{ key: PhaseKey; label: string }> = [
 
 export default function ThreeDPage() {
   const { room } = useOutletContext<StudioContext>();
-  const { geometry, designState, lights: userLights } = useRoomStore();
+  const { geometry, designState, lights: userLights, highQuality3d } = useRoomStore();
 
   // Fall back to geometry wall lengths when API room has width/length = 0
   const geoWallB = geometry.walls.find((w) => w.id === "B");
@@ -2020,6 +2061,7 @@ export default function ThreeDPage() {
   const [activePhase, setActivePhase] = useState<PhaseKey>('boyoq');
   const [showAddSheet, setShowAddSheet] = useState(false);
   const [selectedWall, setSelectedWall] = useState<string | null>(null);
+  const [showPanel, setShowPanel] = useState(false);
   const addSheetSection: 'wallpaper' | 'lyustra' | 'furniture' =
     activePhase === 'boyoq' ? 'wallpaper' : activePhase === 'montaj' ? 'lyustra' : 'furniture';
   const controlsRef = useRef<OrbitControlsImpl | null>(null);
@@ -2044,57 +2086,82 @@ export default function ThreeDPage() {
     [],
   );
 
-  return (
-    <div className="flex" style={{ height: "calc(100vh - 108px)" }}>
+  const activeIdx = RENO_STAGES.findIndex(s => s.key === activePhase);
 
-      {/* ── Left: Phase stepper sidebar ─────────────────────────── */}
-      <nav className="w-36 shrink-0 bg-surface border-r border-gray-200 flex flex-col pt-3 select-none">
+  return (
+    <div className="flex flex-col lg:flex-row" style={{ height: "calc(100vh - 108px)" }}>
+
+      {/* ── Mobile: horizontal phase strip ──────────────────────── */}
+      <div className="flex lg:hidden shrink-0 overflow-x-auto bg-surface border-b border-gray-200 select-none" style={{ scrollbarWidth: 'none' }}>
+        {RENO_STAGES.map((stage, i) => {
+          const status = i < activeIdx ? 'done' : i === activeIdx ? 'current' : 'pending';
+          return (
+            <button
+              key={stage.key}
+              onClick={() => setActivePhase(stage.key)}
+              className={`flex-shrink-0 flex items-center gap-1.5 px-3 py-2.5 text-[11px] font-semibold whitespace-nowrap border-b-2 transition-colors ${
+                status === 'current' ? 'border-brand text-brand' :
+                status === 'done'    ? 'border-transparent text-success' :
+                                       'border-transparent text-gray-400'
+              }`}
+            >
+              {status === 'done' && (
+                <svg width="10" height="10" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M1.5 5.5l3 3 5-5"/>
+                </svg>
+              )}
+              {status === 'current' && <span className="w-1.5 h-1.5 rounded-full bg-brand inline-block" />}
+              {stage.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* ── Desktop: left phase stepper sidebar ─────────────────── */}
+      <nav className="hidden lg:flex w-36 shrink-0 bg-surface border-r border-gray-200 flex-col pt-3 select-none">
         <p className="text-[9px] font-bold text-gray-400 uppercase tracking-widest px-4 mb-2">Bosqichlar</p>
-        {(() => {
-          const activeIdx = RENO_STAGES.findIndex(s => s.key === activePhase);
-          return RENO_STAGES.map((stage, i) => {
-            const status = i < activeIdx ? 'done' : i === activeIdx ? 'current' : 'pending';
-            return (
-              <button
-                key={stage.key}
-                onClick={() => setActivePhase(stage.key)}
-                className={`w-full flex items-center gap-2 px-4 py-2.5 text-[12px] font-semibold text-left transition-colors ${
-                  status === 'current'
-                    ? 'bg-brand text-white'
-                    : status === 'done'
-                    ? 'text-success hover:bg-gray-50'
-                    : 'text-gray-400 hover:bg-gray-50'
-                }`}
-              >
-                {status === 'done' && (
-                  <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
-                    <path d="M1.5 5.5l3 3 5-5"/>
-                  </svg>
-                )}
-                {status === 'current' && (
-                  <span className="w-2 h-2 rounded-full bg-white/90 animate-pulse inline-block shrink-0" />
-                )}
-                {status === 'pending' && (
-                  <span className="w-2 h-2 rounded-full bg-gray-300 inline-block shrink-0" />
-                )}
-                <span className="leading-tight">{stage.label}</span>
-              </button>
-            );
-          });
-        })()}
+        {RENO_STAGES.map((stage, i) => {
+          const status = i < activeIdx ? 'done' : i === activeIdx ? 'current' : 'pending';
+          return (
+            <button
+              key={stage.key}
+              onClick={() => setActivePhase(stage.key)}
+              className={`w-full flex items-center gap-2 px-4 py-2.5 text-[12px] font-semibold text-left transition-colors ${
+                status === 'current'
+                  ? 'bg-brand text-white'
+                  : status === 'done'
+                  ? 'text-success hover:bg-gray-50'
+                  : 'text-gray-400 hover:bg-gray-50'
+              }`}
+            >
+              {status === 'done' && (
+                <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+                  <path d="M1.5 5.5l3 3 5-5"/>
+                </svg>
+              )}
+              {status === 'current' && (
+                <span className="w-2 h-2 rounded-full bg-white/90 animate-pulse inline-block shrink-0" />
+              )}
+              {status === 'pending' && (
+                <span className="w-2 h-2 rounded-full bg-gray-300 inline-block shrink-0" />
+              )}
+              <span className="leading-tight">{stage.label}</span>
+            </button>
+          );
+        })}
       </nav>
 
       {/* ── Center: toolbar + canvas ─────────────────────────────── */}
       <div className="flex-1 flex flex-col min-w-0">
 
         {/* Toolbar */}
-        <div className="flex items-center gap-2 px-4 py-2 bg-surface border-b border-gray-200 shrink-0">
-          <span className="text-xs font-medium text-gray-500 mr-0.5">Ko'rinish:</span>
+        <div className="flex items-center gap-1.5 px-2 lg:px-4 py-1.5 lg:py-2 bg-surface border-b border-gray-200 shrink-0 overflow-x-auto" style={{ scrollbarWidth: 'none' }}>
+          <span className="text-xs font-medium text-gray-500 mr-0.5 shrink-0 hidden sm:block">Ko'rinish:</span>
           {(["back", "top"] as ViewPreset[]).map((v) => (
             <button
               key={v}
               onClick={() => { setPreset(v); setPresetVersion(n => n + 1) }}
-              className={`px-3 py-1 rounded-full text-xs transition-colors ${
+              className={`shrink-0 px-2.5 py-1 rounded-full text-xs transition-colors ${
                 preset === v
                   ? "bg-brand text-white font-medium"
                   : "bg-gray-100 hover:bg-gray-200 text-gray-700"
@@ -2103,36 +2170,36 @@ export default function ThreeDPage() {
               {VIEW_LABELS[v]}
             </button>
           ))}
-          <div className="ml-auto flex items-center gap-2">
+          <div className="ml-auto flex items-center gap-1.5 shrink-0">
             <div className="flex items-center bg-gray-100 rounded-full p-0.5 gap-0.5">
               <button
                 onClick={() => setToolMode('select')}
                 title="Tanlash"
-                className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
+                className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium transition-colors ${
                   toolMode === 'select' ? 'bg-white shadow text-gray-800' : 'text-gray-500 hover:text-gray-700'
                 }`}
               >
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
                   <path d="M4 0l16 10.5-7 1.5 4 8-2.5 1-4-8-6.5 4.5z"/>
                 </svg>
-                Tanlash
+                <span className="hidden sm:inline">Tanlash</span>
               </button>
               <button
                 onClick={() => setToolMode('move')}
                 title="Siljitish"
-                className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
+                className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium transition-colors ${
                   toolMode === 'move' ? 'bg-brand text-white shadow' : 'text-gray-500 hover:text-gray-700'
                 }`}
               >
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
                   <path d="M11 3l-4 4h3v3H7V7l-4 4 4 4v-3h3v3H7l4 4 4-4h-3v-3h3v3l4-4-4-4v3h-3V7h3l-4-4z"/>
                 </svg>
-                Siljitish
+                <span className="hidden sm:inline">Siljitish</span>
               </button>
               <button
                 onClick={() => setToolMode('rotate')}
                 title="Aylantirish"
-                className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
+                className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium transition-colors ${
                   toolMode === 'rotate' ? 'bg-brand text-white shadow' : 'text-gray-500 hover:text-gray-700'
                 }`}
               >
@@ -2140,7 +2207,7 @@ export default function ThreeDPage() {
                   <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
                   <path d="M3 3v5h5"/>
                 </svg>
-                Aylantirish
+                <span className="hidden sm:inline">Aylantirish</span>
               </button>
             </div>
             {toolMode === 'rotate' && selectedFurId && (() => {
@@ -2176,7 +2243,7 @@ export default function ThreeDPage() {
             <button
               onClick={() => setLightsOn(v => !v)}
               title={lightsOn ? "Chiroqni o'chirish" : "Chiroqni yoqish"}
-              className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium transition-colors border ${
+              className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium transition-colors border shrink-0 ${
                 lightsOn
                   ? 'bg-yellow-100 text-yellow-700 border-yellow-300 hover:bg-yellow-200'
                   : 'bg-gray-100 text-gray-400 border-gray-200 hover:bg-gray-200'
@@ -2186,7 +2253,19 @@ export default function ThreeDPage() {
                 <path d="M15 14c.2-1 .7-1.7 1.5-2.5C17.7 10.2 19 8.7 19 7c0-3.3-2.7-6-6-6S7 3.7 7 7c0 1.7 1.3 3.2 2.5 4.5.8.8 1.3 1.5 1.5 2.5"/>
                 <path d="M9 18h6M10 22h4"/>
               </svg>
-              {lightsOn ? 'Yoqilgan' : "O'chirilgan"}
+              <span className="hidden sm:inline">{lightsOn ? 'Yoqilgan' : "O'chirilgan"}</span>
+            </button>
+            {/* Mobile: design panel toggle */}
+            <button
+              onClick={() => setShowPanel(v => !v)}
+              title="Dizayn paneli"
+              className="lg:hidden flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-brand text-white shrink-0"
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="13.5" cy="6.5" r="2.5"/><circle cx="19" cy="17" r="2.5"/><circle cx="6" cy="17" r="2.5"/>
+                <path d="M13.5 9v3.5M19 14.5V11l-5.5-2M6 14.5V11l5.5-2"/>
+              </svg>
+              <span className="hidden sm:inline">Dizayn</span>
             </button>
           </div>
         </div>
@@ -2257,6 +2336,7 @@ export default function ThreeDPage() {
               width={W}
               depth={D}
               height={H}
+              highQuality={highQuality3d}
             />
             <Environment preset="apartment" environmentIntensity={0.35} />
 
@@ -2305,7 +2385,34 @@ export default function ThreeDPage() {
       </div>
 
       {/* ── Right: contextual design panel ───────────────────────── */}
-      <DesignPanel room={room} phase={activePhase} selectedWall={selectedWall} onWallChange={setSelectedWall} />
+
+      {/* Mobile backdrop */}
+      {showPanel && (
+        <div
+          className="lg:hidden fixed inset-0 z-40 bg-black/30"
+          onClick={() => setShowPanel(false)}
+        />
+      )}
+
+      {/* Panel — desktop: static sidebar | mobile: slide-up sheet */}
+      <div
+        className={[
+          /* mobile base */
+          'fixed bottom-0 left-0 right-0 z-50 max-h-[72vh] rounded-t-2xl shadow-2xl transition-transform duration-300 ease-in-out',
+          showPanel ? 'translate-y-0' : 'translate-y-full',
+          /* desktop override */
+          'lg:static lg:translate-y-0 lg:max-h-none lg:rounded-none lg:shadow-none lg:z-auto',
+        ].join(' ')}
+      >
+        {/* Mobile drag handle */}
+        <div
+          className="lg:hidden flex justify-center pt-2 pb-0.5 bg-surface rounded-t-2xl cursor-pointer"
+          onClick={() => setShowPanel(false)}
+        >
+          <div className="w-10 h-1 rounded-full bg-gray-300" />
+        </div>
+        <DesignPanel room={room} phase={activePhase} selectedWall={selectedWall} onWallChange={setSelectedWall} />
+      </div>
 
       {showAddSheet && <AddObjectSheet onClose={() => setShowAddSheet(false)} initialSection={addSheetSection} />}
     </div>
