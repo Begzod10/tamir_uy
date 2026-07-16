@@ -10,6 +10,8 @@ from app.api.v1.deps import CurrentUser, DbSession
 from app.models.apartment import Apartment
 from app.models.room import Room
 from app.schemas.room import RoomCreate, RoomGeometry, RoomOut, RoomUpdate
+from app.services.room_geometry import compute_metrics as _compute_metrics_impl
+from app.services.room_geometry import shoelace as _shoelace
 
 logger = structlog.get_logger(__name__)
 
@@ -17,66 +19,11 @@ router = APIRouter(tags=["rooms"])
 
 
 # ---------------------------------------------------------------------------
-# Geometry helpers
+# Geometry helpers (thin wrappers — logic lives in app.services.room_geometry)
 # ---------------------------------------------------------------------------
 
-def _compute_metrics(
-    geometry: RoomGeometry,
-    ceiling_h: float,
-) -> dict:
-    """Compute derived metrics from the 4-wall room geometry.
-
-    Convention: walls[0] = A (length side), walls[1] = B (width side),
-                walls[2] = C (opposite A), walls[3] = D (opposite B).
-    All lengths must be in metres — no unit conversion is applied.
-    """
-    walls = geometry.walls
-
-    len_a = walls[0].length
-    len_b = walls[1].length
-    len_c = walls[2].length
-    len_d = walls[3].length
-
-    # Opposite walls must agree within 5 %
-    if abs(len_a - len_c) / len_a > 0.05:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Qarama-qarshi devorlar uzunligi mos kelmaydi",
-        )
-    if abs(len_b - len_d) / len_b > 0.05:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Qarama-qarshi devorlar uzunligi mos kelmaydi",
-        )
-
-    perimeter = sum(w.length for w in walls)
-    floor_area = len_a * len_b
-
-    # Validate that element areas do not exceed the wall surface area
-    for wall in walls:
-        wall_area = wall.length * ceiling_h
-        element_area = sum(el.width * el.height for el in wall.elements)
-        if element_area > wall_area:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="Devor elementlari devor maydonidan oshib ketmoqda",
-            )
-
-    openings_count = sum(len(w.elements) for w in walls)
-    openings_area = sum(
-        el.width * el.height
-        for w in walls
-        for el in w.elements
-    )
-    gross_wall_area = perimeter * ceiling_h
-    net_wall_area = max(0.0, gross_wall_area - openings_area)
-
-    return {
-        "floor_area": round(floor_area, 2),
-        "perimeter": round(perimeter, 2),
-        "net_wall_area": round(net_wall_area, 2),
-        "openings_count": openings_count,
-    }
+def _compute_metrics(geometry: RoomGeometry, ceiling_h: float) -> dict:
+    return _compute_metrics_impl(geometry, ceiling_h)
 
 
 async def _get_owned_apartment(apartment_id: UUID, user_id: object, db: DbSession) -> Apartment:

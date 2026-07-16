@@ -287,7 +287,9 @@ def _wallpaper_lines(
 
     lines: list[ComputedLine] = []
 
-    for wall_key in ["A", "B", "C", "D"]:
+    # Iterate over actual wall ids from geometry — works for N-wall rooms
+    wall_keys = [str(w.get("id", "")) for w in walls_data]
+    for wall_key in wall_keys:
         covering = wall_coverings.get(wall_key) or wall_coverings.get("ALL")
         if not covering or not isinstance(covering, dict):
             continue

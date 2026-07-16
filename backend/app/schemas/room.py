@@ -23,8 +23,22 @@ class Wall(BaseModel):
 
 
 class RoomGeometry(BaseModel):
-    # Expects 4 walls; convention: index 0 = A, 1 = B, 2 = C, 3 = D
-    walls: list[Wall] = Field(min_length=4, max_length=4)
+    # Minimum 3 walls.  Legacy rectangular rooms use exactly 4 walls
+    # (index 0=A, 1=B, 2=C, 3=D).  N-wall polygon rooms may have more.
+    walls: list[Wall] = Field(min_length=3)
+    # Ordered polygon vertices in the floor plane (metres, counter-clockwise).
+    # For legacy 4-wall rooms, auto-populated from walls[0].length × walls[1].length
+    # by _normalize_polygon so callers don't need to supply them.
+    vertices: list[tuple[float, float]] | None = None
+
+    @model_validator(mode="after")
+    def _normalize_polygon(self) -> "RoomGeometry":
+        """Auto-compute rectangular vertices for legacy 4-wall rooms."""
+        if self.vertices is None and len(self.walls) == 4:
+            a = self.walls[0].length
+            b = self.walls[1].length
+            self.vertices = [(0.0, 0.0), (a, 0.0), (a, b), (0.0, b)]
+        return self
 
 
 class RoomCreate(BaseModel):
