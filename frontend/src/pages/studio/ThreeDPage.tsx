@@ -1532,28 +1532,29 @@ function DraggableFurnitureModels({
     )
   }
 
-  // Bounding-sphere radius for a furniture item (half-diagonal of its footprint)
-  function itemRadius(furnitureId: string, scaleOverride: number): number {
-    const entry = resolveEntry(furnitureId)
-    if (!entry) return 0.4
-    const so = scaleOverride
-    const hw = (entry.sizeM.w ?? 1) * so / 2
-    const hd = (entry.sizeM.d ?? 1) * so / 2
-    return Math.sqrt(hw * hw + hd * hd)
-  }
-
+  // AABB overlap test in the XZ floor plane (ignores rotation — conservative but tight)
   // Returns true if placing draggingId at (nx, nz) [metres] overlaps any other item
   function wouldCollide(draggingId: string, nx: number, nz: number): boolean {
     const all = furnitureRef.current
     const self = all.find(f => f.id === draggingId)
     if (!self) return false
-    const rA = itemRadius(self.furniture_id, self.scaleOverride ?? 1)
+    const selfEntry = resolveEntry(self.furniture_id)
+    if (!selfEntry) return false
+    const selfSo = self.scaleOverride ?? 1
+    const aHW = (selfEntry.sizeM.w ?? 0.6) * selfSo / 2
+    const aHD = (selfEntry.sizeM.d ?? 0.6) * selfSo / 2
+    const GAP = 0.04 // 4 cm minimum clearance between items
+
     for (const f of all) {
       if (f.id === draggingId) continue
-      const rB = itemRadius(f.furniture_id, f.scaleOverride ?? 1)
-      const dx = nx - f.x / 1000
-      const dz = nz - f.y / 1000
-      if (dx * dx + dz * dz < (rA + rB) * (rA + rB)) return true
+      const entry = resolveEntry(f.furniture_id)
+      if (!entry) continue
+      const so = f.scaleOverride ?? 1
+      const bHW = (entry.sizeM.w ?? 0.6) * so / 2
+      const bHD = (entry.sizeM.d ?? 0.6) * so / 2
+      const dx = Math.abs(nx - f.x / 1000)
+      const dz = Math.abs(nz - f.y / 1000)
+      if (dx < aHW + bHW + GAP && dz < aHD + bHD + GAP) return true
     }
     return false
   }
