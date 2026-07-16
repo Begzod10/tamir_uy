@@ -74,9 +74,21 @@ export type WallCovering =
   | { kind: 'paint'; color: string }
   | { kind: 'oboy'; patternId: string; baseColor: string; accentColor: string }
 
+export interface WallPanelSettings {
+  enabled: boolean
+  width: number    // mm
+  height: number   // mm
+  depth: number    // mm
+  rotation: number // 0 = vertical (portrait), 90 = horizontal (landscape)
+  gap: number      // mm between panels
+  chamfer: number  // mm edge bevel radius (0 = sharp)
+  color: string    // hex
+}
+
 export interface DesignState {
   wallCoverings: { ALL: WallCovering } & Partial<Record<'A' | 'B' | 'C' | 'D', WallCovering>>
   floorType: FloorType
+  wallPanels?: Partial<Record<'ALL' | 'A' | 'B' | 'C' | 'D', WallPanelSettings>>
 }
 
 /** Resolve the effective WallCovering for a given wall (falls back to ALL). */
@@ -85,6 +97,15 @@ export function resolveWallCovering(
   wallId?: 'A' | 'B' | 'C' | 'D',
 ): WallCovering {
   return (wallId ? coverings[wallId] : undefined) ?? coverings.ALL
+}
+
+/** Resolve the effective WallPanelSettings for a given wall (falls back to ALL). */
+export function resolveWallPanel(
+  panels: DesignState['wallPanels'],
+  wallId?: 'A' | 'B' | 'C' | 'D',
+): WallPanelSettings | undefined {
+  if (!panels) return undefined
+  return (wallId ? panels[wallId] : undefined) ?? panels.ALL
 }
 
 /** Resolve just the paint color (or baseColor for oboy) for a wall. */
@@ -159,6 +180,7 @@ interface RoomStore {
   setWizardStep(step: number): void
   setDesignState(patch: Partial<DesignState>): void
   setWallCovering(wallId: 'ALL' | 'A' | 'B' | 'C' | 'D', covering: WallCovering): void
+  setWallPanel(wallId: 'ALL' | 'A' | 'B' | 'C' | 'D', settings: WallPanelSettings): void
   setHighQuality3d(v: boolean): void
   resetRoom(): void
 }
@@ -443,7 +465,21 @@ export const useRoomStore = create<RoomStore>()(
     set((state) => ({
       designState: {
         ...state.designState,
-        wallCoverings: { ...state.designState.wallCoverings, [wallId]: covering },
+        // Setting ALL clears per-wall overrides so it genuinely applies everywhere
+        wallCoverings: wallId === 'ALL'
+          ? { ALL: covering }
+          : { ...state.designState.wallCoverings, [wallId]: covering },
+      },
+    }))
+  },
+
+  setWallPanel(wallId, settings) {
+    set((state) => ({
+      designState: {
+        ...state.designState,
+        wallPanels: wallId === 'ALL'
+          ? { ALL: settings }
+          : { ...state.designState.wallPanels, [wallId]: settings },
       },
     }))
   },

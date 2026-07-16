@@ -231,7 +231,7 @@ export default function StudioPage() {
     <div className="flex flex-col min-h-screen bg-[#EEF1F7]">
       {/* Header — design screen 08 */}
       <header className="bg-white">
-        <div className="px-4 pt-12 pb-3 flex items-center gap-3">
+        <div className="px-4 pt-3 pb-3 flex items-center gap-3">
           {/* Back button */}
           <NavLink
             to="/projects"

@@ -8,11 +8,12 @@ import {
   Html,
   useGLTF,
   Grid,
+  RoundedBox,
 } from "@react-three/drei";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import { useOutletContext } from "react-router-dom";
-import { useRoomStore, resolveWallCovering } from "@/store/roomStore";
-import type { PlacedFurniture, UserFurnitureEntry, PlacedLight, PlacedElectrical } from "@/store/roomStore";
+import { useRoomStore, resolveWallCovering, resolveWallPanel } from "@/store/roomStore";
+import type { PlacedFurniture, UserFurnitureEntry, PlacedLight, PlacedElectrical, WallPanelSettings } from "@/store/roomStore";
 import { DesignPanel } from "@/components/studio/DesignPanel";
 import { AddObjectSheet } from "@/components/studio/AddObjectSheet";
 import type { RoomGeometry, DesignState, WallCovering, WallElement } from "@/store/roomStore";
@@ -192,6 +193,9 @@ interface WallProps {
   axis: "X" | "Z";
   cx: number;
   cz: number;
+  isSelected?: boolean;
+  onClick?: () => void;
+  panelSettings?: WallPanelSettings;
 }
 
 /*
@@ -222,10 +226,12 @@ function WallSegment({
   seg,
   covering,
   baseTexture,
+  isSelected,
 }: {
   seg: Seg;
   covering: WallCovering;
   baseTexture: THREE.CanvasTexture | null;
+  isSelected: boolean;
 }) {
   const mat = useMemo(() => {
     if (covering.kind !== 'oboy' || !baseTexture) return null;
@@ -244,15 +250,174 @@ function WallSegment({
     <mesh position={[seg.px, seg.py, seg.pz]} rotation={[0, seg.ry, 0]} castShadow receiveShadow>
       <planeGeometry args={[seg.pw, seg.ph]} />
       {covering.kind === 'paint' ? (
-        <meshStandardMaterial color={paintColor} roughness={0.88} metalness={0} envMapIntensity={0.3} />
+        <meshStandardMaterial color={paintColor} roughness={0.88} metalness={0} envMapIntensity={0.3}
+          emissive={isSelected ? "#D85A30" : "#000000"} emissiveIntensity={isSelected ? 0.22 : 0} />
       ) : (
-        <meshStandardMaterial map={mat ?? undefined} color="#ffffff" roughness={0.9} metalness={0} envMapIntensity={0.2} />
+        <meshStandardMaterial map={mat ?? undefined} color="#ffffff" roughness={0.9} metalness={0} envMapIntensity={0.2}
+          emissive={isSelected ? "#D85A30" : "#000000"} emissiveIntensity={isSelected ? 0.15 : 0} />
       )}
     </mesh>
   );
 }
 
-function Wall({ length, height, thickness, covering, elements, axis, cx, cz }: WallProps) {
+type ResolvedEl = { position: number; width: number; height: number; sill_height: number };
+
+function WallPanelGrid({
+  wallLengthM,
+  wallHeightM,
+  thickness,
+  axis,
+  cx,
+  cz,
+  settings,
+  elements,
+}: {
+  wallLengthM: number;
+  wallHeightM: number;
+  thickness: number;
+  axis: 'X' | 'Z';
+  cx: number;
+  cz: number;
+  settings: WallPanelSettings;
+  elements: ResolvedEl[];
+}) {
+  const panels = useMemo(() => {
+    const pw = (settings.rotation === 90 ? settings.height : settings.width) / 1000;
+    const ph = (settings.rotation === 90 ? settings.width : settings.height) / 1000;
+    const pd = settings.depth / 1000;
+    const gapM = Math.max(0, settings.gap / 1000);
+    const stride = pw + gapM;
+
+    if (pw <= 0 || ph <= 0 || stride <= 0 || wallLengthM <= 0 || wallHeightM <= 0) return [];
+
+    const faceDir = axis === 'X'
+      ? (cz <= 0 ? 1 : -1)
+      : (cx >= 0 ? -1 : 1);
+    const depthOffset = faceDir * (thickness / 2 + pd / 2 + 0.001);
+    const wallLeft = -wallLengthM / 2;
+
+    // Pre-convert openings to meters for overlap checks
+    const openings = elements.map((el) => ({
+      l: el.position / 1000,
+      r: (el.position + el.width) / 1000,
+      b: el.sill_height / 1000,
+      t: (el.sill_height + el.height) / 1000,
+    }));
+
+    const items: Array<{ x: number; y: number; z: number; aw: number; ah: number; pd: number }> = [];
+
+    // Merge a list of {b,t} intervals (must be pre-sorted by b)
+    function mergeIntervals(segs: Array<{ b: number; t: number }>) {
+      const out: Array<{ b: number; t: number }> = [];
+      for (const seg of segs) {
+        if (out.length === 0 || out[out.length - 1].t <= seg.b) {
+          out.push({ b: seg.b, t: seg.t });
+        } else {
+          out[out.length - 1].t = Math.max(out[out.length - 1].t, seg.t);
+        }
+      }
+      return out;
+    }
+
+    // Rows from bottom. Only the first row may be clipped (when panel is taller than wall).
+    // Subsequent rows stop before a partial strip at the top would appear.
+    for (let r = 0; ; r++) {
+      const rowStart = r * (ph + gapM);
+      if (rowStart >= wallHeightM) break;
+      if (r > 0 && wallHeightM - rowStart < ph / 2) break;
+      const rowH = Math.min(ph, wallHeightM - rowStart);
+      const rowEnd = rowStart + rowH;
+
+      // Columns from left — last column is clipped to remaining width
+      for (let c = 0; ; c++) {
+        const colStart = c * stride;
+        if (colStart >= wallLengthM) break;
+        const colEnd = colStart + Math.min(pw, wallLengthM - colStart);
+
+        // Split column at every opening's left/right edge that falls inside [colStart, colEnd].
+        // This gives horizontal sub-strips, each of which is either fully free or fully
+        // over an opening — avoiding panels that straddle window boundaries.
+        const hBreaks = new Set<number>([colStart, colEnd]);
+        for (const o of openings) {
+          if (o.l > colStart && o.l < colEnd) hBreaks.add(o.l);
+          if (o.r > colStart && o.r < colEnd) hBreaks.add(o.r);
+        }
+        const hSorted = [...hBreaks].sort((a, b) => a - b);
+
+        for (let hi = 0; hi < hSorted.length - 1; hi++) {
+          const sl = hSorted[hi];
+          const sr = hSorted[hi + 1];
+          const sw = sr - sl;
+          const sCenterAlong = wallLeft + (sl + sr) / 2;
+
+          const pushSeg = (segCY: number, segH: number) => {
+            if (axis === 'X') {
+              items.push({ x: cx + sCenterAlong, y: segCY, z: cz + depthOffset, aw: sw, ah: segH, pd });
+            } else {
+              items.push({ x: cx + depthOffset, y: segCY, z: cz + sCenterAlong, aw: sw, ah: segH, pd });
+            }
+          };
+
+          // Openings that overlap this horizontal sub-strip
+          const hOverlap = openings.filter((o) => sl < o.r && sr > o.l);
+
+          if (hOverlap.length === 0) {
+            // No opening in this strip → full-height panel segment
+            pushSeg(rowStart + rowH / 2, rowH);
+          } else {
+            // Opening present → render only the vertical free segments (above/below openings)
+            const blocked = hOverlap
+              .map((o) => ({ b: Math.max(o.b, rowStart), t: Math.min(o.t, rowEnd) }))
+              .filter((seg) => seg.b < seg.t)
+              .sort((a, b) => a.b - b.b);
+            const merged = mergeIntervals(blocked);
+            let cursor = rowStart;
+            for (const seg of merged) {
+              if (cursor < seg.b) {
+                const segH = seg.b - cursor;
+                pushSeg(cursor + segH / 2, segH);
+              }
+              cursor = seg.t;
+            }
+            if (cursor < rowEnd) {
+              const segH = rowEnd - cursor;
+              pushSeg(cursor + segH / 2, segH);
+            }
+          }
+        }
+      }
+    }
+    return items;
+  }, [settings, wallLengthM, wallHeightM, thickness, axis, cx, cz, elements]);
+
+  const chamferMm = settings.chamfer ?? 0;
+
+  return (
+    <>
+      {panels.map((p, i) => {
+        const bw = axis === 'X' ? p.aw : p.pd;
+        const bd = axis === 'X' ? p.pd : p.aw;
+        const maxR = Math.min(bw, p.ah, bd) / 2 - 0.0005;
+        const radius = chamferMm > 0 ? Math.min(chamferMm / 1000, maxR) : 0;
+        if (radius > 0.0004) {
+          return (
+            <RoundedBox key={i} position={[p.x, p.y, p.z]} args={[bw, p.ah, bd]} radius={radius} smoothness={3} castShadow receiveShadow>
+              <meshStandardMaterial color={settings.color} roughness={0.45} metalness={0.05} />
+            </RoundedBox>
+          );
+        }
+        return (
+          <mesh key={i} position={[p.x, p.y, p.z]} castShadow receiveShadow>
+            <boxGeometry args={[bw, p.ah, bd]} />
+            <meshStandardMaterial color={settings.color} roughness={0.45} metalness={0.05} />
+          </mesh>
+        );
+      })}
+    </>
+  );
+}
+
+function Wall({ length, height, thickness, covering, elements, axis, cx, cz, isSelected = false, onClick, panelSettings }: WallProps) {
   const oboyTexture = useMemo(() => {
     if (covering.kind !== 'oboy') return null;
     return createOboyTexture(covering.patternId as OboyPatternId, covering.baseColor, covering.accentColor);
@@ -368,15 +533,28 @@ function Wall({ length, height, thickness, covering, elements, axis, cx, cz }: W
   }, [resolvedElements, length, height, thickness, axis, cx, cz]);
 
   return (
-    <group>
+    <group onClick={onClick}>
       {segments.map((seg, i) => (
         <WallSegment
           key={`${i}-${covering.kind === 'oboy' ? covering.patternId : 'p'}`}
           seg={seg}
           covering={covering}
           baseTexture={oboyTexture}
+          isSelected={isSelected}
         />
       ))}
+      {panelSettings?.enabled && (
+        <WallPanelGrid
+          wallLengthM={length}
+          wallHeightM={height}
+          thickness={thickness}
+          axis={axis}
+          cx={cx}
+          cz={cz}
+          settings={panelSettings}
+          elements={resolvedElements}
+        />
+      )}
     </group>
   );
 }
@@ -1420,6 +1598,8 @@ export function RoomScene({
   showContactShadows,
   hasUserLights,
   lightsOn,
+  selectedWall,
+  onWallClick,
 }: {
   room: Room;
   geometry: RoomGeometry;
@@ -1428,6 +1608,8 @@ export function RoomScene({
   showContactShadows: boolean;
   hasUserLights: boolean;
   lightsOn: boolean;
+  selectedWall?: string | null;
+  onWallClick?: (id: string) => void;
 }) {
   const wallA = geometry.walls.find((w) => w.id === "A");
   const wallB = geometry.walls.find((w) => w.id === "B");
@@ -1443,6 +1625,12 @@ export function RoomScene({
   const coveringB = shadeCovering(resolveWallCovering(designState.wallCoverings, 'B'), 0.82);
   const coveringC = shadeCovering(resolveWallCovering(designState.wallCoverings, 'C'), 0.92);
   const coveringD = shadeCovering(resolveWallCovering(designState.wallCoverings, 'D'), 0.82);
+
+  // Per-wall panel settings
+  const panelsA = resolveWallPanel(designState.wallPanels, 'A');
+  const panelsB = resolveWallPanel(designState.wallPanels, 'B');
+  const panelsC = resolveWallPanel(designState.wallPanels, 'C');
+  const panelsD = resolveWallPanel(designState.wallPanels, 'D');
 
   /*
    * Shell topology — "inner walls smaller in width":
@@ -1497,19 +1685,27 @@ export function RoomScene({
 
       {/* Wall A — back, inner width W only, inner face at z = -D/2 */}
       <Wall wallId="A" length={W} height={H} thickness={T} covering={coveringA}
-        elements={wallA?.elements ?? []} axis="X" cx={0} cz={-(D / 2 + T / 2)} />
+        elements={wallA?.elements ?? []} axis="X" cx={0} cz={-(D / 2 + T / 2)}
+        isSelected={selectedWall === 'A'} onClick={() => onWallClick?.('A')}
+        panelSettings={panelsA} />
 
       {/* Wall B — right, full outer depth D+2T (owns corners), inner face at x = +W/2 */}
       <Wall wallId="B" length={D + 2 * T} height={H} thickness={T} covering={coveringB}
-        elements={elementsBOuter} axis="Z" cx={W / 2 + T / 2} cz={0} />
+        elements={elementsBOuter} axis="Z" cx={W / 2 + T / 2} cz={0}
+        isSelected={selectedWall === 'B'} onClick={() => onWallClick?.('B')}
+        panelSettings={panelsB} />
 
       {/* Wall C — front, inner width W only, inner face at z = +D/2 */}
       <Wall wallId="C" length={W} height={H} thickness={T} covering={coveringC}
-        elements={wallC?.elements ?? []} axis="X" cx={0} cz={D / 2 + T / 2} />
+        elements={wallC?.elements ?? []} axis="X" cx={0} cz={D / 2 + T / 2}
+        isSelected={selectedWall === 'C'} onClick={() => onWallClick?.('C')}
+        panelSettings={panelsC} />
 
       {/* Wall D — left, full outer depth D+2T (owns corners), inner face at x = -W/2 */}
       <Wall wallId="D" length={D + 2 * T} height={H} thickness={T} covering={coveringD}
-        elements={elementsDOuter} axis="Z" cx={-(W / 2 + T / 2)} cz={0} />
+        elements={elementsDOuter} axis="Z" cx={-(W / 2 + T / 2)} cz={0}
+        isSelected={selectedWall === 'D'} onClick={() => onWallClick?.('D')}
+        panelSettings={panelsD} />
 
       <WindowPanes geometry={geometry} wallWidth={W} wallDepth={D} />
       <Baseboard width={W} depth={D} geometry={geometry} />
@@ -1642,14 +1838,16 @@ function CameraAnimator({
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-const RENO_STAGES = [
-  { label: "Suvoq",        status: "done"    as const },
-  { label: "Shpaklovka",   status: "done"    as const },
-  { label: "Bo'yoq/Oboi",  status: "current" as const },
-  { label: "Pol",          status: "pending" as const },
-  { label: "Montaj",       status: "pending" as const },
-  { label: "Mebel",        status: "pending" as const },
-];
+export type PhaseKey = 'suvoq' | 'shpaklovka' | 'boyoq' | 'pol' | 'montaj' | 'mebel'
+
+const RENO_STAGES: Array<{ key: PhaseKey; label: string }> = [
+  { key: 'suvoq',      label: "Suvoq"       },
+  { key: 'shpaklovka', label: "Shpaklovka"  },
+  { key: 'boyoq',      label: "Bo'yoq/Oboi" },
+  { key: 'pol',        label: "Pol"         },
+  { key: 'montaj',     label: "Montaj"      },
+  { key: 'mebel',      label: "Mebel"       },
+]
 
 export default function ThreeDPage() {
   const { room } = useOutletContext<StudioContext>();
@@ -1672,8 +1870,11 @@ export default function ThreeDPage() {
   const [angleInputDeg, setAngleInputDeg] = useState('');
   const furniture = useRoomStore((s) => s.furniture);
   const moveFurniture = useRoomStore((s) => s.moveFurniture);
+  const [activePhase, setActivePhase] = useState<PhaseKey>('boyoq');
   const [showAddSheet, setShowAddSheet] = useState(false);
-  const [addSheetSection, setAddSheetSection] = useState<"wallpaper" | "lyustra" | "furniture">("wallpaper");
+  const [selectedWall, setSelectedWall] = useState<string | null>(null);
+  const addSheetSection: 'wallpaper' | 'lyustra' | 'furniture' =
+    activePhase === 'boyoq' ? 'wallpaper' : activePhase === 'montaj' ? 'lyustra' : 'furniture';
   const controlsRef = useRef<OrbitControlsImpl | null>(null);
 
 
@@ -1698,16 +1899,55 @@ export default function ThreeDPage() {
 
   return (
     <div className="flex" style={{ height: "calc(100vh - 108px)" }}>
-      {/* Left: toolbar + canvas */}
+
+      {/* ── Left: Phase stepper sidebar ─────────────────────────── */}
+      <nav className="w-36 shrink-0 bg-surface border-r border-gray-200 flex flex-col pt-3 select-none">
+        <p className="text-[9px] font-bold text-gray-400 uppercase tracking-widest px-4 mb-2">Bosqichlar</p>
+        {(() => {
+          const activeIdx = RENO_STAGES.findIndex(s => s.key === activePhase);
+          return RENO_STAGES.map((stage, i) => {
+            const status = i < activeIdx ? 'done' : i === activeIdx ? 'current' : 'pending';
+            return (
+              <button
+                key={stage.key}
+                onClick={() => setActivePhase(stage.key)}
+                className={`w-full flex items-center gap-2 px-4 py-2.5 text-[12px] font-semibold text-left transition-colors ${
+                  status === 'current'
+                    ? 'bg-brand text-white'
+                    : status === 'done'
+                    ? 'text-success hover:bg-gray-50'
+                    : 'text-gray-400 hover:bg-gray-50'
+                }`}
+              >
+                {status === 'done' && (
+                  <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+                    <path d="M1.5 5.5l3 3 5-5"/>
+                  </svg>
+                )}
+                {status === 'current' && (
+                  <span className="w-2 h-2 rounded-full bg-white/90 animate-pulse inline-block shrink-0" />
+                )}
+                {status === 'pending' && (
+                  <span className="w-2 h-2 rounded-full bg-gray-300 inline-block shrink-0" />
+                )}
+                <span className="leading-tight">{stage.label}</span>
+              </button>
+            );
+          });
+        })()}
+      </nav>
+
+      {/* ── Center: toolbar + canvas ─────────────────────────────── */}
       <div className="flex-1 flex flex-col min-w-0">
+
         {/* Toolbar */}
-        <div className="flex items-center gap-1.5 px-4 py-2 bg-surface border-b border-gray-200 text-xs shrink-0">
-          <span className="mr-1 font-medium text-gray-600">Ko'rinish:</span>
+        <div className="flex items-center gap-2 px-4 py-2 bg-surface border-b border-gray-200 shrink-0">
+          <span className="text-xs font-medium text-gray-500 mr-0.5">Ko'rinish:</span>
           {(["back", "top"] as ViewPreset[]).map((v) => (
             <button
               key={v}
               onClick={() => { setPreset(v); setPresetVersion(n => n + 1) }}
-              className={`px-3 py-1 rounded-full transition-colors ${
+              className={`px-3 py-1 rounded-full text-xs transition-colors ${
                 preset === v
                   ? "bg-brand text-white font-medium"
                   : "bg-gray-100 hover:bg-gray-200 text-gray-700"
@@ -1716,10 +1956,8 @@ export default function ThreeDPage() {
               {VIEW_LABELS[v]}
             </button>
           ))}
-          <div className="ml-auto flex items-center gap-1.5">
-            {/* Tool mode buttons */}
+          <div className="ml-auto flex items-center gap-2">
             <div className="flex items-center bg-gray-100 rounded-full p-0.5 gap-0.5">
-              {/* Select */}
               <button
                 onClick={() => setToolMode('select')}
                 title="Tanlash"
@@ -1732,7 +1970,6 @@ export default function ThreeDPage() {
                 </svg>
                 Tanlash
               </button>
-              {/* Move */}
               <button
                 onClick={() => setToolMode('move')}
                 title="Siljitish"
@@ -1745,7 +1982,6 @@ export default function ThreeDPage() {
                 </svg>
                 Siljitish
               </button>
-              {/* Rotate */}
               <button
                 onClick={() => setToolMode('rotate')}
                 title="Aylantirish"
@@ -1760,46 +1996,40 @@ export default function ThreeDPage() {
                 Aylantirish
               </button>
             </div>
-            {/* Angle controls — visible only in rotate mode */}
-            {toolMode === 'rotate' && (
-              <div className="flex items-center gap-1 ml-1 pl-2 border-l border-gray-300">
-                {selectedFurId && (() => {
-                  const item = furniture.find(f => f.id === selectedFurId)
-                  if (!item) return null
-                  const currentDeg = Math.round(item.rotation * (180 / Math.PI))
-                  return (
-                    <form
-                      className="flex items-center gap-1 ml-1"
-                      onSubmit={e => {
-                        e.preventDefault()
-                        const deg = parseFloat(angleInputDeg)
-                        if (!isNaN(deg)) {
-                          moveFurniture(item.id, item.x, item.y, deg * (Math.PI / 180))
-                          setAngleInputDeg('')
-                        }
-                      }}
-                    >
-                      <input
-                        key={selectedFurId + currentDeg}
-                        type="number"
-                        defaultValue={currentDeg}
-                        onChange={e => setAngleInputDeg(e.target.value)}
-                        placeholder={`${currentDeg}°`}
-                        className="w-14 text-xs border border-gray-300 rounded px-1 py-0.5 text-center focus:outline-none focus:border-brand"
-                        title="Burchakni darajada kiriting va Enter bosing"
-                      />
-                      <span className="text-gray-400 text-xs">°</span>
-                      <button type="submit" className="text-xs px-1.5 py-0.5 bg-brand text-white rounded font-medium">✓</button>
-                    </form>
-                  )
-                })()}
-              </div>
-            )}
-            {/* Light toggle */}
+            {toolMode === 'rotate' && selectedFurId && (() => {
+              const item = furniture.find(f => f.id === selectedFurId)
+              if (!item) return null
+              const currentDeg = Math.round(item.rotation * (180 / Math.PI))
+              return (
+                <form
+                  className="flex items-center gap-1"
+                  onSubmit={e => {
+                    e.preventDefault()
+                    const deg = parseFloat(angleInputDeg)
+                    if (!isNaN(deg)) {
+                      moveFurniture(item.id, item.x, item.y, deg * (Math.PI / 180))
+                      setAngleInputDeg('')
+                    }
+                  }}
+                >
+                  <input
+                    key={selectedFurId + currentDeg}
+                    type="number"
+                    defaultValue={currentDeg}
+                    onChange={e => setAngleInputDeg(e.target.value)}
+                    placeholder={`${currentDeg}°`}
+                    className="w-14 text-xs border border-gray-300 rounded px-1 py-0.5 text-center focus:outline-none focus:border-brand"
+                    title="Burchakni darajada kiriting va Enter bosing"
+                  />
+                  <span className="text-gray-400 text-xs">°</span>
+                  <button type="submit" className="text-xs px-1.5 py-0.5 bg-brand text-white rounded font-medium">✓</button>
+                </form>
+              )
+            })()}
             <button
               onClick={() => setLightsOn(v => !v)}
               title={lightsOn ? "Chiroqni o'chirish" : "Chiroqni yoqish"}
-              className={`ml-2 flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium transition-colors border ${
+              className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium transition-colors border ${
                 lightsOn
                   ? 'bg-yellow-100 text-yellow-700 border-yellow-300 hover:bg-yellow-200'
                   : 'bg-gray-100 text-gray-400 border-gray-200 hover:bg-gray-200'
@@ -1811,67 +2041,18 @@ export default function ThreeDPage() {
               </svg>
               {lightsOn ? 'Yoqilgan' : "O'chirilgan"}
             </button>
-            <span className="text-gray-400 text-xs ml-1">Drag: aylantirish · Scroll: zoom</span>
           </div>
         </div>
 
-        {/* 3D Canvas — no key={preset}, camera animated via lerp */}
+        {/* Canvas area */}
         <div className="flex-1 min-h-0 relative">
 
-          {/* ── Renovation stages — left floating rail (screen 10) ── */}
-          <div className="absolute left-3 top-1/2 -translate-y-1/2 z-10 flex flex-col gap-1 select-none">
-            {RENO_STAGES.map((stage, i) => (
-              <div
-                key={i}
-                className={`flex items-center gap-2 px-2.5 py-1.5 rounded-xl text-[11px] font-semibold transition-colors ${
-                  stage.status === "done"
-                    ? "bg-success/90 text-white"
-                    : stage.status === "current"
-                    ? "bg-brand/90 text-white"
-                    : "bg-white/70 text-muted"
-                }`}
-                style={{ backdropFilter: "blur(8px)" }}
-              >
-                {stage.status === "done" && (
-                  <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M1.5 5.5l3 3 5-5"/>
-                  </svg>
-                )}
-                {stage.status === "current" && (
-                  <span className="w-2 h-2 rounded-full bg-white/90 animate-pulse inline-block" />
-                )}
-                {stage.status === "pending" && (
-                  <span className="w-2 h-2 rounded-full bg-gray-400 inline-block" />
-                )}
-                {stage.label}
-              </div>
-            ))}
-          </div>
+          {/* Hint overlay — bottom-left of canvas */}
+          <p className="absolute bottom-16 left-4 z-10 text-[10px] text-white/40 pointer-events-none select-none" style={{ textShadow: '0 1px 3px rgba(0,0,0,.5)' }}>
+            Drag: aylantirish · Scroll: zoom
+          </p>
 
-          {/* ── Quick-add — right floating buttons (screen 10) ── */}
-          <div className="absolute right-3 top-1/2 -translate-y-1/2 z-10 flex flex-col gap-2 select-none">
-            {[
-              { label: "Oboi",   section: "wallpaper" as const, path: "M3 3h18v18H3zM3 9h18M9 3v18" },
-              { label: "Chiroq", section: "lyustra"   as const, path: "M12 2a4 4 0 014 4c0 2.2-1.4 4-3 5v1H9v-1C7.4 10 6 8.2 6 6a4 4 0 014-4zm0 14v2m-2 0h4" },
-              { label: "Mebel",  section: "furniture" as const, path: "M2 7h20v10H2zM6 7V5m12 2V5" },
-              { label: "Pol",    section: "wallpaper" as const, path: "M2 18h20M2 14h20M6 10l4-4 4 4 4-4" },
-            ].map((btn) => (
-              <button
-                key={btn.label}
-                onClick={() => { setAddSheetSection(btn.section); setShowAddSheet(true); }}
-                className="w-12 h-12 rounded-2xl flex flex-col items-center justify-center gap-0.5 active:scale-90 transition-transform"
-                style={{ background: "rgba(255,255,255,0.82)", backdropFilter: "blur(10px)", boxShadow: "0 4px 16px rgba(17,24,39,.14)" }}
-                title={btn.label}
-              >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#374151" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-                  <path d={btn.path}/>
-                </svg>
-                <span className="text-[9px] font-bold text-gray-600">{btn.label}</span>
-              </button>
-            ))}
-          </div>
-
-          {/* ── Bottom "Buyum qo'shish" button (screen 10) ── */}
+          {/* Bottom CTA */}
           <div className="absolute bottom-5 left-1/2 -translate-x-1/2 z-10 pointer-events-none">
             <button
               onClick={() => setShowAddSheet(true)}
@@ -1899,16 +2080,20 @@ export default function ThreeDPage() {
           <color attach="background" args={["#E8E4DC"]} />
           <fog attach="fog" args={["#E8E4DC", 12, 30]} />
 
-          {/* Infinite workspace grid */}
+          {/* Infinite workspace grid — grey floor with white lines */}
+          <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.003, 0]}>
+            <planeGeometry args={[200, 200]} />
+            <meshBasicMaterial color="#888888" />
+          </mesh>
           <Grid
             position={[0, -0.002, 0]}
             infiniteGrid
             cellSize={0.1}
             cellThickness={0.4}
-            cellColor="#888888"
+            cellColor="#ffffff"
             sectionSize={1}
             sectionThickness={0.8}
-            sectionColor="#444444"
+            sectionColor="#ffffff"
             fadeDistance={28}
             fadeStrength={1.4}
           />
@@ -1936,6 +2121,11 @@ export default function ThreeDPage() {
               showContactShadows={showContactShadows}
               hasUserLights={userLights.length > 0}
               lightsOn={lightsOn}
+              selectedWall={selectedWall}
+              onWallClick={(id) => {
+                setSelectedWall(id);
+                setActivePhase('boyoq');
+              }}
             />
             <SwapButtons W={W} D={D} H={H} />
             <DraggableFurnitureModels controlsRef={controlsRef} roomW={W} roomD={D} toolMode={toolMode} onSelectItem={setSelectedFurId} />
@@ -1967,10 +2157,9 @@ export default function ThreeDPage() {
         </div>
       </div>
 
-      {/* Right: design panel */}
-      <DesignPanel room={room} />
+      {/* ── Right: contextual design panel ───────────────────────── */}
+      <DesignPanel room={room} phase={activePhase} selectedWall={selectedWall} onWallChange={setSelectedWall} />
 
-      {/* Screen 11: Add object sheet */}
       {showAddSheet && <AddObjectSheet onClose={() => setShowAddSheet(false)} initialSection={addSheetSection} />}
     </div>
   );

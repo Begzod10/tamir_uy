@@ -93,7 +93,11 @@ function HeroCard({ apartment }: { apartment?: Apartment }) {
           </p>
         </div>
         <button
-          onClick={() => firstRoom && navigate(`/studio/${firstRoom.id}/ichkarida`)}
+          onClick={() =>
+            firstRoom
+              ? navigate(`/studio/${firstRoom.id}/ichkarida`)
+              : navigate("/wizard")
+          }
           className="w-11 h-11 rounded-full bg-brand flex items-center justify-center flex-shrink-0"
           style={{ boxShadow: "0 14px 28px -10px rgba(30,64,175,.55)" }}
         >
@@ -130,7 +134,11 @@ function ProjectCard({ apt }: { apt: Apartment }) {
         </p>
       </div>
       <button
-        onClick={() => firstRoom && navigate(`/studio/${firstRoom.id}/ichkarida`)}
+        onClick={() =>
+          firstRoom
+            ? navigate(`/studio/${firstRoom.id}/ichkarida`)
+            : navigate("/wizard")
+        }
         className="px-3 py-1.5 rounded-xl text-[13px] font-bold text-brand flex-shrink-0"
         style={{ background: "#EEF2FF" }}
       >
@@ -177,7 +185,8 @@ export default function ProjectsPage() {
     retry: false,
   });
 
-  const latest = apartments[0];
+  // Prefer an apartment that already has rooms so the play button works immediately
+  const latest = apartments.find(a => a.rooms && a.rooms.length > 0) ?? apartments[0];
 
   return (
     <div className="min-h-screen bg-paper">
