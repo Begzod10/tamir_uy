@@ -1532,6 +1532,32 @@ function DraggableFurnitureModels({
     )
   }
 
+  // Bounding-sphere radius for a furniture item (half-diagonal of its footprint)
+  function itemRadius(furnitureId: string, scaleOverride: number): number {
+    const entry = resolveEntry(furnitureId)
+    if (!entry) return 0.4
+    const so = scaleOverride
+    const hw = (entry.sizeM.w ?? 1) * so / 2
+    const hd = (entry.sizeM.d ?? 1) * so / 2
+    return Math.sqrt(hw * hw + hd * hd)
+  }
+
+  // Returns true if placing draggingId at (nx, nz) [metres] overlaps any other item
+  function wouldCollide(draggingId: string, nx: number, nz: number): boolean {
+    const all = furnitureRef.current
+    const self = all.find(f => f.id === draggingId)
+    if (!self) return false
+    const rA = itemRadius(self.furniture_id, self.scaleOverride ?? 1)
+    for (const f of all) {
+      if (f.id === draggingId) continue
+      const rB = itemRadius(f.furniture_id, f.scaleOverride ?? 1)
+      const dx = nx - f.x / 1000
+      const dz = nz - f.y / 1000
+      if (dx * dx + dz * dz < (rA + rB) * (rA + rB)) return true
+    }
+    return false
+  }
+
   function activateDrag(item: PlacedFurniture, clientX: number) {
     onSelectItem(item.id)
     if (toolMode === 'move') {
@@ -1552,15 +1578,15 @@ function DraggableFurnitureModels({
   }
 
   function startDragFromMesh(item: PlacedFurniture, e: ThreeEvent<PointerEvent>) {
-    if (toolMode === 'select') return
     e.stopPropagation()
+    if (toolMode === 'select') { onSelectItem(item.id); return }
     activateDrag(item, e.clientX)
   }
 
   function startDragFromButton(item: PlacedFurniture, e: React.PointerEvent) {
-    if (toolMode === 'select') return
     e.stopPropagation()
     e.preventDefault()
+    if (toolMode === 'select') { onSelectItem(item.id); return }
     activateDrag(item, e.clientX)
   }
 
@@ -1602,7 +1628,10 @@ function DraggableFurnitureModels({
         const rawZ = Math.max(-halfD + d, Math.min(halfD - d, hitPoint.current.z))
         const x = Math.round(rawX / snap) * snap
         const z = Math.round(rawZ / snap) * snap
-        dragPosRef.current.set(x, 0, z)
+        // Only update position if it doesn't overlap another item
+        if (!wouldCollide(draggingIdRef.current!, x, z)) {
+          dragPosRef.current.set(x, 0, z)
+        }
       } else if (toolMode === 'rotate') {
         const deltaX = e.clientX - rotateStartXRef.current
         const rawRot = rotateStartAngleRef.current - deltaX * (Math.PI / 120)
