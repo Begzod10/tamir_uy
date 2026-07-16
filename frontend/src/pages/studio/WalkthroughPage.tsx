@@ -151,6 +151,8 @@ export default function WalkthroughPage() {
             topView={false}
             designState={designState}
             showContactShadows={false}
+            composerActive={false}
+            highQuality={true}
             hasUserLights={lights.length > 0} lightsOn={true}
           />
 

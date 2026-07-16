@@ -24,6 +24,7 @@ import { resolveElementPositions } from "@/lib/wallPositions";
 import { FURNITURE_CATALOG } from "@/lib/furnitureCatalog";
 import type { Room } from "@/lib/api";
 import * as THREE from "three";
+import { EffectComposer, N8AO, SMAA } from "@react-three/postprocessing";
 
 
 export interface StudioContext {
@@ -1121,7 +1122,9 @@ function DraggableElectricalModels({
 
 // ─── Corner shadow accents ────────────────────────────────────────────────────
 
-function CornerShadows({ width, depth }: { width: number; depth: number }) {
+function CornerShadows({ width, depth, composerActive }: { width: number; depth: number; composerActive: boolean }) {
+  // Halve opacity when N8AO composer is active to avoid double-darkening corners
+  const opacity = composerActive ? 0.07 : 0.15;
   const corners: [number, number][] = [
     [-width / 2, -depth / 2],
     [width / 2, -depth / 2],
@@ -1133,7 +1136,7 @@ function CornerShadows({ width, depth }: { width: number; depth: number }) {
       {corners.map(([x, z], i) => (
         <mesh key={i} position={[x, 0.01, z]} rotation={[-Math.PI / 2, 0, 0]}>
           <planeGeometry args={[0.5, 0.5]} />
-          <meshBasicMaterial color="#000000" transparent opacity={0.15} />
+          <meshBasicMaterial color="#000000" transparent opacity={opacity} />
         </mesh>
       ))}
     </group>
@@ -1181,6 +1184,29 @@ export function SceneLighting({
         shadow-bias={-0.001}
       />
     </>
+  );
+}
+
+// ─── Postprocessing — N8AO ambient occlusion + SMAA anti-alias ──────────────
+// Only mounted when highQuality3d is true and PerformanceMonitor hasn't fired
+// 2 consecutive declines.  Html overlays (SwapButtons, drag handles) are DOM
+// elements placed via drei portals and are unaffected by the WebGL composer.
+
+function RealismEffects({ enabled }: { enabled: boolean }) {
+  if (!enabled) return null;
+  return (
+    <EffectComposer multisampling={0}>
+      {/* N8AO is a Pass (not an Effect) — must come before SMAA EffectPass */}
+      <N8AO
+        halfRes
+        aoRadius={0.4}
+        intensity={2.5}
+        distanceFalloff={0.4}
+        quality="performance"
+        depthAwareUpsampling
+      />
+      <SMAA />
+    </EffectComposer>
   );
 }
 
@@ -1745,6 +1771,8 @@ export function RoomScene({
   topView,
   designState,
   showContactShadows,
+  composerActive,
+  highQuality,
   hasUserLights,
   lightsOn,
   selectedWall,
@@ -1755,6 +1783,8 @@ export function RoomScene({
   topView: boolean;
   designState: DesignState;
   showContactShadows: boolean;
+  composerActive: boolean;
+  highQuality: boolean;
   hasUserLights: boolean;
   lightsOn: boolean;
   selectedWall?: string | null;
@@ -1883,7 +1913,7 @@ export function RoomScene({
 
           <WindowPanes geometry={geometry} wallWidth={W} wallDepth={D} />
           <Baseboard width={W} depth={D} geometry={geometry} />
-          <CornerShadows width={W} depth={D} />
+          <CornerShadows width={W} depth={D} composerActive={composerActive} />
         </>
       ) : (
         /* N-wall polygon room — only available when geometry.vertices is set */
@@ -1903,10 +1933,11 @@ export function RoomScene({
       {showContactShadows && (
         <ContactShadows
           position={[0, 0.01, 0]}
-          opacity={0.3}
-          scale={[W, D]}
-          blur={1.8}
-          far={0.3}
+          opacity={0.55}
+          scale={[W + 1, D + 1]}
+          blur={2.2}
+          far={0.5}
+          resolution={highQuality ? 512 : 256}
         />
       )}
     </group>
@@ -2051,7 +2082,10 @@ export default function ThreeDPage() {
   const [preset, setPreset] = useState<ViewPreset>("back");
   const [presetVersion, setPresetVersion] = useState(0);
   const [dpr, setDpr] = useState<number | [number, number]>([1, 2]);
-  const [showContactShadows, setShowContactShadows] = useState(true);
+  // Two consecutive PerformanceMonitor declines required before killing shadows / composer
+  const [declineCount, setDeclineCount] = useState(0);
+  const showContactShadows = declineCount < 2;
+  const useComposer = highQuality3d && declineCount < 2;
   const [toolMode, setToolMode] = useState<ToolMode>('select');
   const [lightsOn, setLightsOn] = useState(true);
   const [selectedFurId, setSelectedFurId] = useState<string | null>(null);
@@ -2327,7 +2361,7 @@ export default function ThreeDPage() {
           <PerformanceMonitor
             onDecline={() => {
               setDpr(1);
-              setShowContactShadows(false);
+              setDeclineCount(n => n + 1);
             }}
           />
 
@@ -2346,6 +2380,8 @@ export default function ThreeDPage() {
               topView={topView}
               designState={designState}
               showContactShadows={showContactShadows}
+              composerActive={useComposer}
+              highQuality={highQuality3d}
               hasUserLights={userLights.length > 0}
               lightsOn={lightsOn}
               selectedWall={selectedWall}
@@ -2354,6 +2390,7 @@ export default function ThreeDPage() {
                 setActivePhase('boyoq');
               }}
             />
+            <RealismEffects enabled={useComposer} />
             <SwapButtons W={W} D={D} H={H} />
             <DraggableFurnitureModels controlsRef={controlsRef} roomW={W} roomD={D} toolMode={toolMode} onSelectItem={setSelectedFurId} />
             <DraggableElectricalModels controlsRef={controlsRef} W={W} D={D} />

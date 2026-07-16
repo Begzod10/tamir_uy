@@ -1397,6 +1397,8 @@ function ElektrScene({ room, geometry, designState, electricals, lights, wireCon
         topView={false}
         designState={designState}
         showContactShadows={false}
+        composerActive={false}
+        highQuality={false}
         hasUserLights={lights.length > 0} lightsOn={true}
       />
       {electricals.map(el => (
