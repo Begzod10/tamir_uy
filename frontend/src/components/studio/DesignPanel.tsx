@@ -95,7 +95,7 @@ export function DesignPanel({ room, phase, selectedWall, onWallChange }: {
   useRestoreUserModels()
 
   const { designState, setDesignState, setWallCovering, setWallPanel, geometry, ceilingHeight,
-          furniture, placeFurniture, removeFurniture, setFurnitureColors, resizeFurniture,
+          furniture, placeFurniture, removeFurniture, setFurnitureColors,
           userFurniture, removeUserFurniture } =
     useRoomStore();
 
@@ -648,42 +648,13 @@ export function DesignPanel({ room, phase, selectedWall, onWallChange }: {
                 <div className="flex items-center gap-2 text-xs px-2 py-1.5 bg-gray-50">
                   <span>{entry?.emoji ?? '📦'}</span>
                   <span className="flex-1 text-gray-700 truncate font-medium">{entry?.name ?? 'Model'}</span>
+                  <span className="text-[10px] text-gray-400 tabular-nums shrink-0">{actualW}×{actualD} m</span>
                   <button
                     onClick={() => setColorEditorId(isEditing ? null : f.id)}
                     title="Rang o'zgartirish"
                     className={`text-sm leading-none transition-colors ${isEditing ? 'text-brand' : hasOverrides ? 'text-amber-500' : 'text-gray-300 hover:text-gray-500'}`}
                   >🎨</button>
                   <button onClick={() => removeFurniture(f.id)} className="text-gray-400 hover:text-red-500 transition-colors text-sm leading-none" title="O'chirish">✕</button>
-                </div>
-
-                {/* Resize slider — always visible */}
-                <div className="px-2 py-1.5 space-y-0.5">
-                  <div className="flex items-center justify-between">
-                    <label className="text-[10px] text-gray-400">O'lcham</label>
-                    <span className="text-[10px] text-gray-500 font-medium tabular-nums">
-                      {actualW}×{actualD} m ({Math.round(so * 100)}%)
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[9px] text-gray-300">50%</span>
-                    <input
-                      type="range"
-                      min={50}
-                      max={200}
-                      step={5}
-                      value={Math.round(so * 100)}
-                      onChange={(e) => resizeFurniture(f.id, Number(e.target.value) / 100)}
-                      className="flex-1 h-1.5 accent-brand cursor-pointer"
-                    />
-                    <span className="text-[9px] text-gray-300">200%</span>
-                    {so !== 1 && (
-                      <button
-                        onClick={() => resizeFurniture(f.id, 1)}
-                        className="text-[9px] text-gray-400 hover:text-brand transition-colors"
-                        title="Asl o'lchamga qaytarish"
-                      >↺</button>
-                    )}
-                  </div>
                 </div>
 
                 {isEditing && (

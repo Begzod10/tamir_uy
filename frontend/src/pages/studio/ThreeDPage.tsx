@@ -1325,12 +1325,6 @@ function applyColorOverrides(obj: THREE.Object3D, overrides: Record<string, stri
 
 // ─── Placed furniture renderer ────────────────────────────────────────────────
 
-/** Returns the Y offset needed to ground the model's bounding box bottom at y=0. */
-function groundOffset(obj: THREE.Object3D, scale: number): number {
-  const box = new THREE.Box3().setFromObject(obj);
-  return isFinite(box.min.y) ? -box.min.y * scale : 0;
-}
-
 function FurnitureItem({ item }: { item: PlacedFurniture }) {
   const entry = useFurnitureEntry(item.furniture_id)
   const modelPath = entry?.modelPath ?? ''
@@ -1341,6 +1335,13 @@ function FurnitureItem({ item }: { item: PlacedFurniture }) {
     return c
   }, [scene]);
 
+  // Compute bottom offset ONCE per clone, before R3F touches the object's position.
+  // Storing scale-independent value so it stays correct when scaleOverride changes.
+  const yOffUnit = useMemo(() => {
+    const box = new THREE.Box3().setFromObject(cloned)
+    return isFinite(box.min.y) ? -box.min.y : 0
+  }, [cloned]);
+
   useLayoutEffect(() => {
     if (!item.colorOverrides || Object.keys(item.colorOverrides).length === 0) return
     applyColorOverrides(cloned, item.colorOverrides)
@@ -1348,11 +1349,10 @@ function FurnitureItem({ item }: { item: PlacedFurniture }) {
 
   if (!entry || !modelPath) return null;
   const s = entry.scale * (item.scaleOverride ?? 1);
-  const yOff = groundOffset(cloned, s);
   return (
     <primitive
       object={cloned}
-      position={[item.x / 1000, yOff, item.y / 1000]}
+      position={[item.x / 1000, yOffUnit * s, item.y / 1000]}
       rotation={[0, item.rotation, 0]}
       scale={s}
     />
@@ -1406,6 +1406,12 @@ function DraggableFurnitureItem({
   const groupRef = useRef<THREE.Group>(null)
   const primitiveRef = useRef<THREE.Object3D>(null)
 
+  // Compute bottom offset ONCE per clone before R3F sets position on the object.
+  const yOffUnit = useMemo(() => {
+    const box = new THREE.Box3().setFromObject(cloned)
+    return isFinite(box.min.y) ? -box.min.y : 0
+  }, [cloned])
+
   useLayoutEffect(() => {
     if (!item.colorOverrides || Object.keys(item.colorOverrides).length === 0) return
     applyColorOverrides(cloned, item.colorOverrides)
@@ -1426,7 +1432,7 @@ function DraggableFurnitureItem({
   const interactive = toolMode !== 'select'
   const so = item.scaleOverride ?? 1
   const s = entry.scale * so
-  const yOff = groundOffset(cloned, s)
+  const yOff = yOffUnit * s
   const buttonH = (entry.sizeM.h ?? 1) * so + 0.18
   const btnActive = isDragging
 
