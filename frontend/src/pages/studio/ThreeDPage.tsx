@@ -1,4 +1,4 @@
-import { Suspense, memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { Suspense, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { Canvas, useFrame, useThree, type ThreeEvent } from "@react-three/fiber";
 import {
   OrbitControls,
@@ -1386,6 +1386,7 @@ function DraggableFurnitureItem({
   dragRotRef,
   onMeshPointerDown,
   onButtonPointerDown,
+  onFootprint,
 }: {
   item: PlacedFurniture
   isDragging: boolean
@@ -1394,6 +1395,7 @@ function DraggableFurnitureItem({
   dragRotRef: RefObject<number>
   onMeshPointerDown: (e: ThreeEvent<PointerEvent>) => void
   onButtonPointerDown: (e: React.PointerEvent) => void
+  onFootprint: (id: string, hw: number, hd: number) => void
 }) {
   const entry = useFurnitureEntry(item.furniture_id)
   const modelPath = entry?.modelPath ?? ''
@@ -1406,11 +1408,22 @@ function DraggableFurnitureItem({
   const groupRef = useRef<THREE.Group>(null)
   const primitiveRef = useRef<THREE.Object3D>(null)
 
-  // Compute bottom offset ONCE per clone before R3F sets position on the object.
-  const yOffUnit = useMemo(() => {
+  // Compute Y offset and XZ footprint ONCE per clone, before R3F sets position.
+  const { yOffUnit, geomHW, geomHD } = useMemo(() => {
     const box = new THREE.Box3().setFromObject(cloned)
-    return isFinite(box.min.y) ? -box.min.y : 0
+    return {
+      yOffUnit: isFinite(box.min.y) ? -box.min.y : 0,
+      geomHW: isFinite(box.max.x) ? (box.max.x - box.min.x) / 2 : 0.3,
+      geomHD: isFinite(box.max.z) ? (box.max.z - box.min.z) / 2 : 0.3,
+    }
   }, [cloned])
+
+  // Report actual footprint to parent for collision detection
+  useEffect(() => {
+    if (!entry) return
+    const s = entry.scale * (item.scaleOverride ?? 1)
+    onFootprint(item.id, geomHW * s, geomHD * s)
+  }, [item.id, geomHW, geomHD, entry, item.scaleOverride, onFootprint])
 
   useLayoutEffect(() => {
     if (!item.colorOverrides || Object.keys(item.colorOverrides).length === 0) return
@@ -1524,6 +1537,11 @@ function DraggableFurnitureModels({
   const floorPlane = useMemo(() => new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), [])
   const raycaster = useMemo(() => new THREE.Raycaster(), [])
   const hitPoint = useRef(new THREE.Vector3())
+  // Actual XZ half-extents reported by each item from its real geometry bounding box
+  const footprintsRef = useRef<Map<string, { hw: number; hd: number }>>(new Map())
+  const handleFootprint = useCallback((id: string, hw: number, hd: number) => {
+    footprintsRef.current.set(id, { hw, hd })
+  }, [])
 
   function resolveEntry(furnitureId: string): AnyFurnitureEntry | undefined {
     return (
@@ -1532,29 +1550,20 @@ function DraggableFurnitureModels({
     )
   }
 
-  // AABB overlap test in the XZ floor plane (ignores rotation — conservative but tight)
-  // Returns true if placing draggingId at (nx, nz) [metres] overlaps any other item
+  // AABB overlap test using actual geometry footprints, not catalog sizeM
   function wouldCollide(draggingId: string, nx: number, nz: number): boolean {
     const all = furnitureRef.current
-    const self = all.find(f => f.id === draggingId)
-    if (!self) return false
-    const selfEntry = resolveEntry(self.furniture_id)
-    if (!selfEntry) return false
-    const selfSo = self.scaleOverride ?? 1
-    const aHW = (selfEntry.sizeM.w ?? 0.6) * selfSo / 2
-    const aHD = (selfEntry.sizeM.d ?? 0.6) * selfSo / 2
-    const GAP = 0.04 // 4 cm minimum clearance between items
+    const aFP = footprintsRef.current.get(draggingId)
+    if (!aFP) return false
+    const GAP = 0.03 // 3 cm minimum clearance
 
     for (const f of all) {
       if (f.id === draggingId) continue
-      const entry = resolveEntry(f.furniture_id)
-      if (!entry) continue
-      const so = f.scaleOverride ?? 1
-      const bHW = (entry.sizeM.w ?? 0.6) * so / 2
-      const bHD = (entry.sizeM.d ?? 0.6) * so / 2
+      const bFP = footprintsRef.current.get(f.id)
+      if (!bFP) continue
       const dx = Math.abs(nx - f.x / 1000)
       const dz = Math.abs(nz - f.y / 1000)
-      if (dx < aHW + bHW + GAP && dz < aHD + bHD + GAP) return true
+      if (dx < aFP.hw + bFP.hw + GAP && dz < aFP.hd + bFP.hd + GAP) return true
     }
     return false
   }
@@ -1562,9 +1571,14 @@ function DraggableFurnitureModels({
   function activateDrag(item: PlacedFurniture, clientX: number) {
     onSelectItem(item.id)
     if (toolMode === 'move') {
+      // Prefer actual geometry footprint; fall back to catalog sizeM
+      const fp = footprintsRef.current.get(item.id)
       const entry = resolveEntry(item.furniture_id)
       const so = item.scaleOverride ?? 1
-      dragHalfRef.current = { w: (entry?.sizeM.w ?? 0.6) * so / 2, d: (entry?.sizeM.d ?? 0.6) * so / 2 }
+      const hw = fp?.hw ?? (entry?.sizeM.w ?? 0.6) * so / 2
+      const hd = fp?.hd ?? (entry?.sizeM.d ?? 0.6) * so / 2
+      const WALL_MARGIN = 0.05 // 5 cm clearance from wall inner face
+      dragHalfRef.current = { w: hw + WALL_MARGIN, d: hd + WALL_MARGIN }
       dragPosRef.current.set(item.x / 1000, 0, item.y / 1000)
       document.body.style.cursor = 'grabbing'
     } else if (toolMode === 'rotate') {
@@ -1662,6 +1676,7 @@ function DraggableFurnitureModels({
             dragRotRef={dragRotRef}
             onMeshPointerDown={(e) => startDragFromMesh(item, e)}
             onButtonPointerDown={(e) => startDragFromButton(item, e)}
+            onFootprint={handleFootprint}
           />
         </Suspense>
       ))}
