@@ -18,9 +18,7 @@ import { cn } from '@/lib/utils'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const TOTAL_STEPS = 6
-
-const WALL_IDS: Array<'A' | 'B' | 'C' | 'D'> = ['A', 'B', 'C', 'D']
+// TOTAL_STEPS is dynamic: geometry.walls.length + 2 (ceiling + N walls + results)
 
 const CEILING_PRESETS = [2.5, 2.7, 3.0, 3.2]
 
@@ -59,9 +57,9 @@ const stepTransition = { duration: 0.25, ease: [0.25, 0.46, 0.45, 0.94] }
 
 // ─── Wall step label ──────────────────────────────────────────────────────────
 
-function wallStepLabel(idx: number): string {
-  const labels = ['A devor', 'B devor', 'C devor', 'D devor']
-  return labels[idx] ?? ''
+function wallStepLabel(wall: { id: string }, idx: number): string {
+  const defaultLabels = ['A devor', 'B devor', 'C devor', 'D devor']
+  return defaultLabels[idx] ?? `${wall.id} devor`
 }
 
 // ─── Element chip ─────────────────────────────────────────────────────────────
@@ -342,7 +340,7 @@ function WallStep({
 
   const isC = wall.id === 'C'
   const lenM = wall.length / 1000
-  const label = wallStepLabel(wallIndex)
+  const label = wallStepLabel(wall, wallIndex)
 
   function handleSlider(v: number) {
     onLengthChange(wall.id, Math.round(v * 1000))
@@ -623,7 +621,7 @@ export default function WizardPage() {
 
   // ── Auto-save to DB on every wizard state change (debounced 800ms) ──────
   React.useEffect(() => {
-    if (!draftLoaded || !draftId || step >= 5) return
+    if (!draftLoaded || !draftId || step >= geometry.walls.length + 1) return
     const timer = setTimeout(() => {
       void updateDraftRoom(draftId, {
         ceilingHeight,
@@ -637,19 +635,18 @@ export default function WizardPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ceilingHeight, geometry, step, designState, draftId, draftLoaded])
 
-  const wallA = geometry.walls.find((w) => w.id === 'A')!
-  const wallB = geometry.walls.find((w) => w.id === 'B')!
-  const wallC = geometry.walls.find((w) => w.id === 'C')!
-  const wallD = geometry.walls.find((w) => w.id === 'D')!
-  const walls = [wallA, wallB, wallC, wallD]
+  // Keep first-wall lookup for the "link to A" feature in WallStep
+  const wallA = geometry.walls.find((w) => w.id === 'A') ?? geometry.walls[0]!
+  const walls = geometry.walls
 
-  // Step 0 = ceiling, Steps 1–4 = walls, Step 5 = results
-  const activeWall: 'A' | 'B' | 'C' | 'D' | null =
-    step >= 1 && step <= 4 ? WALL_IDS[step - 1] : null
+  // Step 0 = ceiling, Steps 1–N = walls, Step N+1 = results
+  const totalSteps = geometry.walls.length + 2
+  const activeWall: string | null =
+    step >= 1 && step <= geometry.walls.length ? geometry.walls[step - 1].id : null
 
   // Auto-save to DB when geometry changes (debounced 1.5s)
   React.useEffect(() => {
-    if (step === 0 || step >= 5) return  // only during wall steps
+    if (step === 0 || step >= totalSteps - 1) return  // only during wall steps
     const timer = setTimeout(() => {
       void handleSave()
     }, 1500)
@@ -700,7 +697,7 @@ export default function WizardPage() {
     setDir(1)
     setStep(nextStep)
     setWizardStep(nextStep)
-    if (nextStep === 5) {
+    if (nextStep === totalSteps - 1) {
       void handleSave()
     }
   }
@@ -729,7 +726,7 @@ export default function WizardPage() {
     setResumePrompt(false)
   }
 
-  const progressPct = (step / (TOTAL_STEPS - 1)) * 100
+  const progressPct = totalSteps > 1 ? (step / (totalSteps - 1)) * 100 : 0
 
   return (
     <div className="min-h-screen bg-paper flex flex-col">
@@ -770,7 +767,7 @@ export default function WizardPage() {
         <IsometricRoomPreview
           geometry={geometry}
           ceilingHeight={ceilingHeight}
-          activeWall={activeWall}
+          activeWall={activeWall as 'A' | 'B' | 'C' | 'D' | null}
         />
       </div>
 
@@ -804,10 +801,10 @@ export default function WizardPage() {
                 />
               )}
 
-              {step >= 1 && step <= 4 && (
+              {step >= 1 && step <= geometry.walls.length && (
                 <WallStep
                   wallIndex={step - 1}
-                  wall={walls[step - 1]}
+                  wall={walls[step - 1] ?? walls[0]}
                   wallA={wallA}
                   ceilingHeight={ceilingHeight}
                   onLengthChange={setWallLength}
@@ -818,7 +815,7 @@ export default function WizardPage() {
                 />
               )}
 
-              {step === 5 && (
+              {step === totalSteps - 1 && (
                 <Step5
                   roomId={roomId}
                   geometry={geometry}
@@ -831,7 +828,7 @@ export default function WizardPage() {
         </div>
 
         {/* Navigation */}
-        {step < 5 && (
+        {step < totalSteps - 1 && (
           <div className="px-4 pb-6 pt-2 flex items-center gap-3 border-t border-neutral-100 bg-white">
             {step > 0 && (
               <button

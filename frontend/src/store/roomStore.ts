@@ -14,29 +14,25 @@ export interface WallElement {
 }
 
 export interface Wall {
-  id: 'A' | 'B' | 'C' | 'D'
+  id: string
   length: number
   elements: WallElement[]
 }
 
 export interface RoomGeometry {
   walls: Wall[]
+  /** Polygon vertices [x, z] in mm, counter-clockwise. Auto-populated for 4-wall rooms. */
+  vertices?: [number, number][]
 }
 
-export interface AppliedSurfaces {
-  A?: string
-  B?: string
-  C?: string
-  D?: string
-  floor?: string
-}
+export type AppliedSurfaces = Record<string, string>
 
 export type ElectricalType = 'switch1' | 'switch2' | 'socket1' | 'socket2' | 'socket_media' | 'panel'
 
 export interface PlacedElectrical {
   id: string
   type: ElectricalType
-  wallId: 'A' | 'B' | 'C' | 'D'
+  wallId: string
   positionMm: number
   heightMm: number
 }
@@ -86,15 +82,15 @@ export interface WallPanelSettings {
 }
 
 export interface DesignState {
-  wallCoverings: { ALL: WallCovering } & Partial<Record<'A' | 'B' | 'C' | 'D', WallCovering>>
+  wallCoverings: { ALL: WallCovering } & Partial<Record<string, WallCovering>>
   floorType: FloorType
-  wallPanels?: Partial<Record<'ALL' | 'A' | 'B' | 'C' | 'D', WallPanelSettings>>
+  wallPanels?: Partial<Record<string, WallPanelSettings>>
 }
 
 /** Resolve the effective WallCovering for a given wall (falls back to ALL). */
 export function resolveWallCovering(
   coverings: DesignState['wallCoverings'],
-  wallId?: 'A' | 'B' | 'C' | 'D',
+  wallId?: string,
 ): WallCovering {
   return (wallId ? coverings[wallId] : undefined) ?? coverings.ALL
 }
@@ -102,7 +98,7 @@ export function resolveWallCovering(
 /** Resolve the effective WallPanelSettings for a given wall (falls back to ALL). */
 export function resolveWallPanel(
   panels: DesignState['wallPanels'],
-  wallId?: 'A' | 'B' | 'C' | 'D',
+  wallId?: string,
 ): WallPanelSettings | undefined {
   if (!panels) return undefined
   return (wallId ? panels[wallId] : undefined) ?? panels.ALL
@@ -111,7 +107,7 @@ export function resolveWallPanel(
 /** Resolve just the paint color (or baseColor for oboy) for a wall. */
 export function resolveWallColor(
   coverings: DesignState['wallCoverings'],
-  wallId?: 'A' | 'B' | 'C' | 'D',
+  wallId?: string,
 ): string {
   const c = resolveWallCovering(coverings, wallId)
   return c.kind === 'paint' ? c.color : c.baseColor
@@ -179,8 +175,8 @@ interface RoomStore {
   markSaved(): void
   setWizardStep(step: number): void
   setDesignState(patch: Partial<DesignState>): void
-  setWallCovering(wallId: 'ALL' | 'A' | 'B' | 'C' | 'D', covering: WallCovering): void
-  setWallPanel(wallId: 'ALL' | 'A' | 'B' | 'C' | 'D', settings: WallPanelSettings): void
+  setWallCovering(wallId: string, covering: WallCovering): void
+  setWallPanel(wallId: string, settings: WallPanelSettings): void
   setHighQuality3d(v: boolean): void
   resetRoom(): void
 }
@@ -509,7 +505,7 @@ export const useRoomStore = create<RoomStore>()(
 }),
     {
       name: 'uytamir-room-draft',
-      version: 2,
+      version: 3,
       migrate(persisted: unknown, version: number) {
         if (version < 2) {
           const old = persisted as { designState?: { wallColor?: string; floorType?: string } }
@@ -523,6 +519,7 @@ export const useRoomStore = create<RoomStore>()(
             } satisfies DesignState,
           }
         }
+        // v2→v3: no-op (vertices is optional, AppliedSurfaces is backward-compatible)
         return persisted
       },
       // Persist local state so HMR / refreshes don't lose unsaved work.
@@ -551,6 +548,19 @@ export const useRoomStore = create<RoomStore>()(
  * Assumes a rectangular room where A/C are parallel and B/D are parallel.
  */
 export function computeFloorArea(geometry: RoomGeometry): number {
+  if (geometry.vertices && geometry.vertices.length >= 3) {
+    // Shoelace formula — vertices in mm
+    const verts = geometry.vertices
+    const n = verts.length
+    let area = 0
+    for (let i = 0; i < n; i++) {
+      const [x1, y1] = verts[i]
+      const [x2, y2] = verts[(i + 1) % n]
+      area += x1 * y2 - x2 * y1
+    }
+    return Math.abs(area) / 2  // mm²
+  }
+  // Legacy rectangle fallback
   const wallA = geometry.walls.find((w) => w.id === 'A')
   const wallB = geometry.walls.find((w) => w.id === 'B')
   if (!wallA || !wallB) return 0

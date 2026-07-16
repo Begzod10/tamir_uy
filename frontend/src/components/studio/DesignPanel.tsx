@@ -232,7 +232,7 @@ export function DesignPanel({ room, phase, selectedWall, onWallChange }: {
   }
 
   const wallColorForPreview = resolveWallColor(designState.wallCoverings);
-  const hasOboy = Object.values(designState.wallCoverings).some((c) => c.kind === "oboy");
+  const hasOboy = Object.values(designState.wallCoverings).some((c) => c?.kind === "oboy");
 
   // Server smeta is authoritative; oboySmeta.ts is instant fallback only
   const { data: previewData, isLoading: previewLoading } = useQuery({

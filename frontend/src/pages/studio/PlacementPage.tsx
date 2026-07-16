@@ -225,6 +225,7 @@ function wallDeviceSvgPos(e: PlacedElectrical, W: number, D: number): { x: numbe
     case 'C': return { x: PAD + p, y: PAD + D * SCALE }
     case 'D': return { x: PAD,     y: PAD + p }
     case 'B': return { x: PAD + W * SCALE, y: PAD + p }
+    default:  return { x: PAD, y: PAD }
   }
 }
 
@@ -316,8 +317,8 @@ function ccwCorners(from: number, to: number, W: number, D: number): number[] {
 
 // 2D wall-perimeter SVG waypoints for one wire
 function routeSvgPts(dev: PlacedElectrical, panel: PlacedElectrical, W: number, D: number, cw: boolean): [number, number][] {
-  const devC = wirePerimCoord(dev.wallId,   dev.positionMm,   W, D)
-  const panC = wirePerimCoord(panel.wallId, panel.positionMm, W, D)
+  const devC = wirePerimCoord(dev.wallId as WallId,   dev.positionMm,   W, D)
+  const panC = wirePerimCoord(panel.wallId as WallId, panel.positionMm, W, D)
   const corners = cw ? cwCorners(devC, panC, W, D) : ccwCorners(devC, panC, W, D)
   return [
     perimToSvgPt(devC, W, D),
@@ -333,8 +334,8 @@ function routeWire3D(dev: PlacedElectrical, panel: PlacedElectrical, W: number, 
   const pdim = ELEC_DIMS_3D[panel.type]
   const devH = dev.heightMm   / 1000 + dim.h  / 2
   const panH = panel.heightMm / 1000 + pdim.h / 2
-  const devC = wirePerimCoord(dev.wallId,   dev.positionMm,   W, D)
-  const panC = wirePerimCoord(panel.wallId, panel.positionMm, W, D)
+  const devC = wirePerimCoord(dev.wallId as WallId,   dev.positionMm,   W, D)
+  const panC = wirePerimCoord(panel.wallId as WallId, panel.positionMm, W, D)
   const corners = cw ? cwCorners(devC, panC, W, D) : ccwCorners(devC, panC, W, D)
   return [
     perimTo3DPt(devC, W, D, devH),
@@ -860,7 +861,7 @@ function FloorPlan({
               e.stopPropagation()
               dragStartClient.current = { x: e.clientX, y: e.clientY }
               dragHasMoved.current = false
-              setDraggingEl({ id: el.id, wallId: el.wallId, posMm: el.positionMm })
+              setDraggingEl({ id: el.id, wallId: el.wallId as WallId, posMm: el.positionMm })
             }
 
             if (el.type === 'panel') {
@@ -893,7 +894,7 @@ function FloorPlan({
                 style={{ cursor: isDragged ? 'grabbing' : 'grab' }}
                 onPointerDown={startElDrag}>
                 <circle r="12" fill="white" opacity={isDragged ? 0.5 : 0.8}/>
-                <MiniSymbol type={el.type} wallId={el.wallId}/>
+                <MiniSymbol type={el.type} wallId={el.wallId as WallId}/>
                 {isDragged && <circle r="14" fill="none" stroke={NAVY} strokeWidth="1" strokeDasharray="3 2" opacity="0.5"/>}
                 <circle r="12" fill="transparent"/>
               </g>
@@ -1473,11 +1474,11 @@ export default function PlacementPage() {
   // Compute effective wire config for each non-panel device
   const wireConfigs = useMemo<Record<string, WireConfig>>(() => {
     if (!panel) return {}
-    const panC = wirePerimCoord(panel.wallId, panel.positionMm, W, D)
+    const panC = wirePerimCoord(panel.wallId as WallId, panel.positionMm, W, D)
     const out: Record<string, WireConfig> = {}
     for (const el of electricals) {
       if (el.type === 'panel') continue
-      const devC = wirePerimCoord(el.wallId, el.positionMm, W, D)
+      const devC = wirePerimCoord(el.wallId as WallId, el.positionMm, W, D)
       out[el.id] = {
         color: wireColors[el.id] ?? WIRE,
         cw:    wireRoutes[el.id] !== undefined ? wireRoutes[el.id] : shortestCW(devC, panC, W, D),
@@ -1496,7 +1497,7 @@ export default function PlacementPage() {
     const wireChannelH = Math.min(H - 0.1, Math.max(maxOpeningTopM + 0.22, 2.25))
     const pdim = ELEC_DIMS_3D[panel.type]
     const panH = panel.heightMm / 1000 + pdim.h / 2
-    const panC = wirePerimCoord(panel.wallId, panel.positionMm, W, D)
+    const panC = wirePerimCoord(panel.wallId as WallId, panel.positionMm, W, D)
     const perim = 2 * (W + D)
     const out: Record<string, number> = {}
     for (const el of electricals) {
@@ -1505,7 +1506,7 @@ export default function PlacementPage() {
       if (!cfg) continue
       const dim = ELEC_DIMS_3D[el.type]
       const devH = el.heightMm / 1000 + dim.h / 2
-      const devC = wirePerimCoord(el.wallId, el.positionMm, W, D)
+      const devC = wirePerimCoord(el.wallId as WallId, el.positionMm, W, D)
       const perimDist = cfg.cw
         ? (panC - devC + perim) % perim
         : (devC - panC + perim) % perim

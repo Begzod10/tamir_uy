@@ -932,6 +932,7 @@ function DraggableElectricalItem({
       case 'C': return { px: p - W / 2, py: cy, pz: D / 2 - depth / 2 - T, ry: Math.PI }
       case 'D': return { px: -(W / 2) + depth / 2 + T, py: cy, pz: p - D / 2, ry: Math.PI / 2 }
       case 'B': return { px: W / 2 - depth / 2 - T, py: cy, pz: p - D / 2, ry: -Math.PI / 2 }
+      default: return { px: 0, py: cy, pz: 0, ry: 0 }
     }
   }, [el, W, D, dim.h, depth])
 
@@ -1046,7 +1047,7 @@ function DraggableElectricalModels({
     const el = electricalsRef.current.find(e => e.id === draggingId)
     if (!el) return
 
-    const wallPlane = getWallPlane(el.wallId, W, D)
+    const wallPlane = getWallPlane(el.wallId as 'A' | 'B' | 'C' | 'D', W, D)
     const isH = el.wallId === 'A' || el.wallId === 'C'
     const wallLenMm = isH ? W * 1000 : D * 1000
     const canvas = gl.domElement
@@ -1590,6 +1591,113 @@ function shadeCovering(covering: WallCovering, factor: number): WallCovering {
   return { ...covering, baseColor: shadeHex(covering.baseColor, factor) }
 }
 
+// ─── N-wall polygon room shell ────────────────────────────────────────────────
+//
+// Used when the room has non-ABCD wall IDs (e.g. from a RoomPlan scan).
+// Renders a polygon floor/ceiling and N wall boxes positioned along each edge.
+// Windows/doors and baseboards are omitted for now (Phase 5 enhancement).
+
+function NWallRoomShell({
+  geometry,
+  H,
+  designState,
+  selectedWall,
+  onWallClick,
+}: {
+  geometry: RoomGeometry;
+  H: number;
+  designState: DesignState;
+  selectedWall?: string | null;
+  onWallClick?: (id: string) => void;
+}) {
+  const verts = geometry.vertices!
+  const n = verts.length
+
+  // Centroid for centering polygon at origin (metres)
+  const cxM = verts.reduce((s, [x]) => s + x, 0) / n / 1000
+  const czM = verts.reduce((s, [, z]) => s + z, 0) / n / 1000
+
+  // Centred vertices in metres (XZ plane)
+  const centred = useMemo(
+    () => verts.map(([x, z]) => [x / 1000 - cxM, z / 1000 - czM] as [number, number]),
+    // Stable dep: stringify only the numeric values so reference changes don't cause churn
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [verts.map(v => v.join(',')).join(';')]
+  )
+
+  const floorGeo = useMemo(() => {
+    const shape = new THREE.Shape()
+    shape.moveTo(centred[0][0], centred[0][1])
+    for (let i = 1; i < centred.length; i++) shape.lineTo(centred[i][0], centred[i][1])
+    shape.closePath()
+    return new THREE.ShapeGeometry(shape)
+  }, [centred])
+
+  const T = 0.18  // 18 cm wall thickness for polygon rooms
+
+  return (
+    <group>
+      {/* Floor — ShapeGeometry in XY plane, rotated flat */}
+      <mesh geometry={floorGeo} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
+        <meshStandardMaterial
+          color={FLOOR_COLORS[designState.floorType] ?? '#C9AB7E'}
+          roughness={0.8}
+        />
+      </mesh>
+
+      {/* Ceiling — same shape, flipped */}
+      <mesh geometry={floorGeo} rotation={[Math.PI / 2, 0, 0]} position={[0, H, 0]} castShadow>
+        <meshStandardMaterial color={CEILING_DEFAULT} roughness={0.95} side={THREE.DoubleSide} />
+      </mesh>
+
+      {/* One wall box per polygon edge */}
+      {centred.map(([x1, z1], i) => {
+        const [x2, z2] = centred[(i + 1) % n]
+        const dx = x2 - x1
+        const dz = z2 - z1
+        const length = Math.sqrt(dx * dx + dz * dz)
+        if (length < 0.01) return null
+
+        const wall = geometry.walls[i]
+        const wallId = wall?.id ?? String(i)
+
+        // Rotation: atan2(-dz, dx) aligns box local-X with edge direction (dx,dz)
+        const ry = Math.atan2(-dz, dx)
+
+        // Alternate shade factor for depth cues (avoid all walls looking identical)
+        const shadeFactor = i % 2 === 0 ? 0.92 : 0.82
+        const covering = shadeCovering(
+          resolveWallCovering(designState.wallCoverings, wallId),
+          shadeFactor,
+        )
+        const baseColor = covering.kind === 'paint' ? covering.color : covering.baseColor
+        const isSelected = selectedWall === wallId
+
+        return (
+          <mesh
+            key={wallId}
+            position={[(x1 + x2) / 2, H / 2, (z1 + z2) / 2]}
+            rotation={[0, ry, 0]}
+            castShadow
+            receiveShadow
+            onClick={() => onWallClick?.(wallId)}
+          >
+            <boxGeometry args={[length, H, T]} />
+            <meshStandardMaterial
+              color={isSelected ? '#D85A30' : baseColor}
+              roughness={0.85}
+              emissive={isSelected ? '#D85A30' : '#000000'}
+              emissiveIntensity={isSelected ? 0.12 : 0}
+            />
+          </mesh>
+        )
+      })}
+    </group>
+  )
+}
+
+// ─── Full room scene ──────────────────────────────────────────────────────────
+
 export function RoomScene({
   room,
   geometry,
@@ -1611,12 +1719,35 @@ export function RoomScene({
   selectedWall?: string | null;
   onWallClick?: (id: string) => void;
 }) {
+  // Legacy 4-wall ABCD rectangle — use the existing precise rendering.
+  // Any other layout (N-wall from RoomPlan) uses NWallRoomShell.
+  const isLegacyAbcd =
+    geometry.walls.length === 4 &&
+    geometry.walls[0]?.id === 'A' &&
+    geometry.walls[1]?.id === 'B' &&
+    geometry.walls[2]?.id === 'C' &&
+    geometry.walls[3]?.id === 'D'
+
   const wallA = geometry.walls.find((w) => w.id === "A");
   const wallB = geometry.walls.find((w) => w.id === "B");
-  const W = (room.width  > 0 ? room.width  : (wallB?.length ?? 3000) / 1000);
-  const D = (room.length > 0 ? room.length : (wallA?.length ?? 4000) / 1000);
+
+  // W/D from room API when available, fall back to store geometry
+  const W_abcd = (room.width  > 0 ? room.width  : (wallB?.length ?? 3000) / 1000);
+  const D_abcd = (room.length > 0 ? room.length : (wallA?.length ?? 4000) / 1000);
+
+  // For N-wall rooms, estimate W/D from the bounding box of polygon vertices
+  const verts = geometry.vertices
+  const W_poly = verts && verts.length >= 2
+    ? (Math.max(...verts.map(([x]) => x)) - Math.min(...verts.map(([x]) => x))) / 1000
+    : 4.0
+  const D_poly = verts && verts.length >= 2
+    ? (Math.max(...verts.map(([, z]) => z)) - Math.min(...verts.map(([, z]) => z))) / 1000
+    : 3.0
+
+  const W = isLegacyAbcd ? W_abcd : W_poly
+  const D = isLegacyAbcd ? D_abcd : D_poly
   const H = (room.ceiling_height > 0 ? room.ceiling_height : 2.7);
-  const T = 0.25; // 25 cm wall thickness
+  const T = 0.25; // 25 cm wall thickness (used only for legacy ABCD)
   const wallC = geometry.walls.find((w) => w.id === "C");
   const wallD = geometry.walls.find((w) => w.id === "D");
 
@@ -1675,41 +1806,57 @@ export function RoomScene({
 
   return (
     <group>
-      <WoodFloor width={W} depth={D} floorType={designState.floorType} />
+      {isLegacyAbcd ? (
+        <>
+          <WoodFloor width={W} depth={D} floorType={designState.floorType} />
 
-      {/* Ceiling — always present for shadow casting; layer 2 in topView hides from camera */}
-      <mesh ref={ceilingRef} position={[0, H + 0.025, 0]} castShadow receiveShadow>
-        <boxGeometry args={[W, 0.05, D]} />
-        <meshStandardMaterial color={CEILING_DEFAULT} roughness={0.95} />
-      </mesh>
+          {/* Ceiling — always present for shadow casting; layer 2 in topView hides from camera */}
+          <mesh ref={ceilingRef} position={[0, H + 0.025, 0]} castShadow receiveShadow>
+            <boxGeometry args={[W, 0.05, D]} />
+            <meshStandardMaterial color={CEILING_DEFAULT} roughness={0.95} />
+          </mesh>
 
-      {/* Wall A — back, inner width W only, inner face at z = -D/2 */}
-      <Wall wallId="A" length={W} height={H} thickness={T} covering={coveringA}
-        elements={wallA?.elements ?? []} axis="X" cx={0} cz={-(D / 2 + T / 2)}
-        isSelected={selectedWall === 'A'} onClick={() => onWallClick?.('A')}
-        panelSettings={panelsA} />
+          {/* Wall A — back, inner width W only, inner face at z = -D/2 */}
+          <Wall wallId="A" length={W} height={H} thickness={T} covering={coveringA}
+            elements={wallA?.elements ?? []} axis="X" cx={0} cz={-(D / 2 + T / 2)}
+            isSelected={selectedWall === 'A'} onClick={() => onWallClick?.('A')}
+            panelSettings={panelsA} />
 
-      {/* Wall B — right, full outer depth D+2T (owns corners), inner face at x = +W/2 */}
-      <Wall wallId="B" length={D + 2 * T} height={H} thickness={T} covering={coveringB}
-        elements={elementsBOuter} axis="Z" cx={W / 2 + T / 2} cz={0}
-        isSelected={selectedWall === 'B'} onClick={() => onWallClick?.('B')}
-        panelSettings={panelsB} />
+          {/* Wall B — right, full outer depth D+2T (owns corners), inner face at x = +W/2 */}
+          <Wall wallId="B" length={D + 2 * T} height={H} thickness={T} covering={coveringB}
+            elements={elementsBOuter} axis="Z" cx={W / 2 + T / 2} cz={0}
+            isSelected={selectedWall === 'B'} onClick={() => onWallClick?.('B')}
+            panelSettings={panelsB} />
 
-      {/* Wall C — front, inner width W only, inner face at z = +D/2 */}
-      <Wall wallId="C" length={W} height={H} thickness={T} covering={coveringC}
-        elements={wallC?.elements ?? []} axis="X" cx={0} cz={D / 2 + T / 2}
-        isSelected={selectedWall === 'C'} onClick={() => onWallClick?.('C')}
-        panelSettings={panelsC} />
+          {/* Wall C — front, inner width W only, inner face at z = +D/2 */}
+          <Wall wallId="C" length={W} height={H} thickness={T} covering={coveringC}
+            elements={wallC?.elements ?? []} axis="X" cx={0} cz={D / 2 + T / 2}
+            isSelected={selectedWall === 'C'} onClick={() => onWallClick?.('C')}
+            panelSettings={panelsC} />
 
-      {/* Wall D — left, full outer depth D+2T (owns corners), inner face at x = -W/2 */}
-      <Wall wallId="D" length={D + 2 * T} height={H} thickness={T} covering={coveringD}
-        elements={elementsDOuter} axis="Z" cx={-(W / 2 + T / 2)} cz={0}
-        isSelected={selectedWall === 'D'} onClick={() => onWallClick?.('D')}
-        panelSettings={panelsD} />
+          {/* Wall D — left, full outer depth D+2T (owns corners), inner face at x = -W/2 */}
+          <Wall wallId="D" length={D + 2 * T} height={H} thickness={T} covering={coveringD}
+            elements={elementsDOuter} axis="Z" cx={-(W / 2 + T / 2)} cz={0}
+            isSelected={selectedWall === 'D'} onClick={() => onWallClick?.('D')}
+            panelSettings={panelsD} />
 
-      <WindowPanes geometry={geometry} wallWidth={W} wallDepth={D} />
-      <Baseboard width={W} depth={D} geometry={geometry} />
-      <CornerShadows width={W} depth={D} />
+          <WindowPanes geometry={geometry} wallWidth={W} wallDepth={D} />
+          <Baseboard width={W} depth={D} geometry={geometry} />
+          <CornerShadows width={W} depth={D} />
+        </>
+      ) : (
+        /* N-wall polygon room — only available when geometry.vertices is set */
+        geometry.vertices && geometry.vertices.length >= 3 ? (
+          <NWallRoomShell
+            geometry={geometry}
+            H={H}
+            designState={designState}
+            selectedWall={selectedWall}
+            onWallClick={onWallClick}
+          />
+        ) : null
+      )}
+
       <CeilingLights width={W} depth={D} height={H} hasUserLights={hasUserLights} lightsOn={lightsOn} />
 
       {showContactShadows && (

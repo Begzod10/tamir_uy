@@ -26,7 +26,7 @@ interface RoomScanPluginBridge {
 
 function getPlugin(): RoomScanPluginBridge | null {
   if (typeof window === 'undefined') return null
-  const cap = (window as Record<string, unknown>).Capacitor as
+  const cap = (window as unknown as Record<string, unknown>).Capacitor as
     | { Plugins?: Record<string, unknown> }
     | undefined
   const plugin = cap?.Plugins?.['RoomScanPlugin']

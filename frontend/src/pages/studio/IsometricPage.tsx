@@ -181,7 +181,7 @@ export default function IsometricPage() {
   }
 
   const ceilColor = '#F0EDE6'
-  const hasOboy = Object.values(designState.wallCoverings).some(c => c.kind === 'oboy')
+  const hasOboy = Object.values(designState.wallCoverings).some(c => c?.kind === 'oboy')
   const smeta = hasOboy ? computeOboyRolls(geometry, designState.wallCoverings, ceilingHeight) : null
 
   return (
