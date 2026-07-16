@@ -24,8 +24,6 @@ import { resolveElementPositions } from "@/lib/wallPositions";
 import { FURNITURE_CATALOG } from "@/lib/furnitureCatalog";
 import type { Room } from "@/lib/api";
 import * as THREE from "three";
-import { EffectComposer, N8AO, SMAA } from "@react-three/postprocessing";
-
 
 export interface StudioContext {
   room: Room;
@@ -1187,29 +1185,6 @@ export function SceneLighting({
   );
 }
 
-// ─── Postprocessing — N8AO ambient occlusion + SMAA anti-alias ──────────────
-// Only mounted when highQuality3d is true and PerformanceMonitor hasn't fired
-// 2 consecutive declines.  Html overlays (SwapButtons, drag handles) are DOM
-// elements placed via drei portals and are unaffected by the WebGL composer.
-
-function RealismEffects({ enabled }: { enabled: boolean }) {
-  if (!enabled) return null;
-  return (
-    <EffectComposer multisampling={0}>
-      {/* N8AO is a Pass (not an Effect) — must come before SMAA EffectPass */}
-      <N8AO
-        halfRes
-        aoRadius={0.4}
-        intensity={2.5}
-        distanceFalloff={0.4}
-        quality="performance"
-        depthAwareUpsampling
-      />
-      <SMAA />
-    </EffectComposer>
-  );
-}
-
 // ─── In-scene swap buttons ────────────────────────────────────────────────────
 
 const SwapButtons = memo(function SwapButtons({ W, D, H }: { W: number; D: number; H: number }) {
@@ -2085,7 +2060,6 @@ export default function ThreeDPage() {
   // Two consecutive PerformanceMonitor declines required before killing shadows / composer
   const [declineCount, setDeclineCount] = useState(0);
   const showContactShadows = declineCount < 2;
-  const useComposer = highQuality3d && declineCount < 2;
   const [toolMode, setToolMode] = useState<ToolMode>('select');
   const [lightsOn, setLightsOn] = useState(true);
   const [selectedFurId, setSelectedFurId] = useState<string | null>(null);
@@ -2380,7 +2354,7 @@ export default function ThreeDPage() {
               topView={topView}
               designState={designState}
               showContactShadows={showContactShadows}
-              composerActive={useComposer}
+              composerActive={false}
               highQuality={highQuality3d}
               hasUserLights={userLights.length > 0}
               lightsOn={lightsOn}
@@ -2390,7 +2364,6 @@ export default function ThreeDPage() {
                 setActivePhase('boyoq');
               }}
             />
-            <RealismEffects enabled={useComposer} />
             <SwapButtons W={W} D={D} H={H} />
             <DraggableFurnitureModels controlsRef={controlsRef} roomW={W} roomD={D} toolMode={toolMode} onSelectItem={setSelectedFurId} />
             <DraggableElectricalModels controlsRef={controlsRef} W={W} D={D} />
