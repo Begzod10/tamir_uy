@@ -1325,6 +1325,12 @@ function applyColorOverrides(obj: THREE.Object3D, overrides: Record<string, stri
 
 // ─── Placed furniture renderer ────────────────────────────────────────────────
 
+/** Returns the Y offset needed to ground the model's bounding box bottom at y=0. */
+function groundOffset(obj: THREE.Object3D, scale: number): number {
+  const box = new THREE.Box3().setFromObject(obj);
+  return isFinite(box.min.y) ? -box.min.y * scale : 0;
+}
+
 function FurnitureItem({ item }: { item: PlacedFurniture }) {
   const entry = useFurnitureEntry(item.furniture_id)
   const modelPath = entry?.modelPath ?? ''
@@ -1342,10 +1348,11 @@ function FurnitureItem({ item }: { item: PlacedFurniture }) {
 
   if (!entry || !modelPath) return null;
   const s = entry.scale * (item.scaleOverride ?? 1);
+  const yOff = groundOffset(cloned, s);
   return (
     <primitive
       object={cloned}
-      position={[item.x / 1000, 0, item.y / 1000]}
+      position={[item.x / 1000, yOff, item.y / 1000]}
       rotation={[0, item.rotation, 0]}
       scale={s}
     />
@@ -1418,6 +1425,8 @@ function DraggableFurnitureItem({
 
   const interactive = toolMode !== 'select'
   const so = item.scaleOverride ?? 1
+  const s = entry.scale * so
+  const yOff = groundOffset(cloned, s)
   const buttonH = (entry.sizeM.h ?? 1) * so + 0.18
   const btnActive = isDragging
 
@@ -1426,8 +1435,9 @@ function DraggableFurnitureItem({
       <primitive
         ref={primitiveRef}
         object={cloned}
+        position={[0, yOff, 0]}
         rotation={[0, item.rotation, 0]}
-        scale={entry.scale * (item.scaleOverride ?? 1)}
+        scale={s}
         onPointerDown={interactive ? onMeshPointerDown : undefined}
         onPointerEnter={() => { if (interactive) document.body.style.cursor = toolMode === 'rotate' ? 'ew-resize' : 'grab' }}
         onPointerLeave={() => { if (!isDragging) document.body.style.cursor = '' }}
