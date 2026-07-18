@@ -508,6 +508,7 @@ function Wall({ length, height, thickness, covering, elements, axis, cx, cz, isS
   const [imageTexture, setImageTexture] = useState<THREE.Texture | null>(null);
   const [texAspect, setTexAspect] = useState(1); // texW / texH
   const textureUrl = covering.kind === 'texture' ? covering.url : null;
+  const { invalidate } = useThree();
   useEffect(() => {
     if (!textureUrl) { setImageTexture(null); setTexAspect(1); return; }
     let disposed = false;
@@ -519,10 +520,10 @@ function Wall({ length, height, thickness, covering, elements, axis, cx, cz, isS
       const img = t.image as HTMLImageElement;
       const w = img.naturalWidth || img.width || 1;
       const h = img.naturalHeight || img.height || 1;
-      if (!disposed) { setTexAspect(w / h); setImageTexture(t); }
+      if (!disposed) { setTexAspect(w / h); setImageTexture(t); invalidate(); }
     });
     return () => { disposed = true; };
-  }, [textureUrl]);
+  }, [textureUrl, invalidate]);
 
 
   const resolvedElements = useMemo(
@@ -2664,23 +2665,27 @@ export default function ThreeDPage() {
           <color attach="background" args={["#E8E4DC"]} />
           <fog attach="fog" args={["#E8E4DC", 12, 30]} />
 
-          {/* Infinite workspace grid — grey floor with white lines */}
-          <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.003, 0]}>
-            <planeGeometry args={[200, 200]} />
-            <meshBasicMaterial color="#888888" />
-          </mesh>
-          <Grid
-            position={[0, -0.002, 0]}
-            infiniteGrid
-            cellSize={0.1}
-            cellThickness={0.4}
-            cellColor="#ffffff"
-            sectionSize={1}
-            sectionThickness={0.8}
-            sectionColor="#ffffff"
-            fadeDistance={28}
-            fadeStrength={1.4}
-          />
+          {/* Infinite workspace grid — only shown in top-down (Yuqori) view */}
+          {topView && (
+            <>
+              <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.003, 0]}>
+                <planeGeometry args={[200, 200]} />
+                <meshBasicMaterial color="#888888" />
+              </mesh>
+              <Grid
+                position={[0, -0.002, 0]}
+                infiniteGrid
+                cellSize={0.1}
+                cellThickness={0.4}
+                cellColor="#ffffff"
+                sectionSize={1}
+                sectionThickness={0.8}
+                sectionColor="#ffffff"
+                fadeDistance={28}
+                fadeStrength={1.4}
+              />
+            </>
+          )}
 
           <PerformanceMonitor
             onDecline={() => {
