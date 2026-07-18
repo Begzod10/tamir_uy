@@ -88,6 +88,7 @@ export interface DesignState {
   wallCoverings: { ALL: WallCovering } & Partial<Record<string, WallCovering>>
   floorType: FloorType
   wallPanels?: Partial<Record<string, WallPanelSettings>>
+  floorTexture?: string | null
 }
 
 /** Resolve the effective WallCovering for a given wall (falls back to ALL). */
@@ -179,6 +180,7 @@ interface RoomStore {
   markSaved(): void
   setWizardStep(step: number): void
   setDesignState(patch: Partial<DesignState>): void
+  setFloorTexture(url: string | null): void
   setWallCovering(wallId: string, covering: WallCovering): void
   setWallPanel(wallId: string, settings: WallPanelSettings): void
   setHighQuality3d(v: boolean): void
@@ -468,6 +470,10 @@ export const useRoomStore = create<RoomStore>()(
 
   setDesignState(patch) {
     set((state) => ({ designState: { ...state.designState, ...patch } }))
+  },
+
+  setFloorTexture(url) {
+    set((state) => ({ designState: { ...state.designState, floorTexture: url }, isDirty: true }))
   },
 
   setWallCovering(wallId, covering) {

@@ -5,7 +5,7 @@ import { updateRoom, getMaterials, previewEstimate } from "@/lib/api";
 import type { Room, Material } from "@/lib/api";
 import { uz } from "@/locale/uz";
 import { useRoomStore, resolveWallColor, resolveWallPanel } from "@/store/roomStore";
-import type { WallCovering, WallPanelSettings } from "@/store/roomStore";
+import type { WallCovering, WallPanelSettings, FloorType } from "@/store/roomStore";
 import { OBOY_PATTERNS, getOboySvgPattern } from "@/lib/oboyPatterns";
 import type { OboyPatternId } from "@/lib/oboyPatterns";
 import { computeOboyRolls } from "@/lib/oboySmeta";
@@ -16,8 +16,9 @@ import { useRestoreUserModels } from "@/hooks/useRestoreUserModels";
 
 type PhaseKey = 'suvoq' | 'shpaklovka' | 'boyoq' | 'pol' | 'montaj' | 'mebel'
 
-type WallTarget = "ALL" | "A" | "B" | "C" | "D";
+type WallTarget = "ALL" | "A" | "B" | "C" | "D" | "FLOOR";
 type CoveringMode = "paint" | "oboy" | "texture";
+type FloorMode = "turi" | "rasm";
 
 const WALL_COLORS = [
   "#FFFFFF", "#F5F0E8", "#E8D5C4", "#D4E8D4",
@@ -32,11 +33,12 @@ const FLOOR_TYPES = [
 ];
 
 const WALL_TARGETS: { key: WallTarget; label: string }[] = [
-  { key: "ALL", label: "Hamma devorlar" },
-  { key: "A",   label: "Devor A" },
-  { key: "B",   label: "Devor B" },
-  { key: "C",   label: "Devor C" },
-  { key: "D",   label: "Devor D" },
+  { key: "ALL",   label: "Hamma devorlar" },
+  { key: "A",     label: "Devor A" },
+  { key: "B",     label: "Devor B" },
+  { key: "C",     label: "Devor C" },
+  { key: "D",     label: "Devor D" },
+  { key: "FLOOR", label: "Pol" },
 ];
 
 function PanelInput({
@@ -94,7 +96,7 @@ export function DesignPanel({ room, phase, selectedWall, onWallChange }: {
 }) {
   useRestoreUserModels()
 
-  const { designState, setDesignState, setWallCovering, setWallPanel, geometry, ceilingHeight,
+  const { designState, setDesignState, setWallCovering, setWallPanel, setFloorTexture, geometry, ceilingHeight,
           furniture, placeFurniture, removeFurniture, setFurnitureColors,
           userFurniture, removeUserFurniture } =
     useRoomStore();
@@ -103,7 +105,10 @@ export function DesignPanel({ room, phase, selectedWall, onWallChange }: {
   const floorType = designState.floorType;
 
   const [coveringMode, setCoveringMode] = React.useState<CoveringMode>("paint");
-  const targetWall: WallTarget = (selectedWall && ['A','B','C','D'].includes(selectedWall))
+  const [floorMode, setFloorMode] = React.useState<FloorMode>("turi");
+  const floorFileRef = React.useRef<HTMLInputElement>(null);
+
+  const targetWall: WallTarget = (selectedWall && (['A','B','C','D','FLOOR'] as string[]).includes(selectedWall))
     ? selectedWall as WallTarget
     : 'ALL';
   const setTargetWall = (w: WallTarget) => onWallChange?.(w === 'ALL' ? null : w);
@@ -180,9 +185,21 @@ export function DesignPanel({ room, phase, selectedWall, onWallChange }: {
   }
 
   function handleSetFloorType(type: string) {
-    const ft = type as typeof floorType;
+    const ft = type as FloorType;
     setDesignState({ floorType: ft });
     syncToApi({ ...designState, floorType: ft });
+  }
+
+  function handleFloorTextureUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const url = ev.target?.result as string;
+      if (url) setFloorTexture(url);
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
   }
 
   function handleSetCoveringMode(mode: CoveringMode) {
@@ -269,9 +286,9 @@ export function DesignPanel({ room, phase, selectedWall, onWallChange }: {
 
   const WallSection = (
     <>
-      {/* Wall selector */}
+      {/* Wall + floor selector */}
       <section>
-        <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Devor</h3>
+        <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Devor / Pol</h3>
         <div className="flex flex-wrap gap-1.5">
           {WALL_TARGETS.map(({ key, label }) => (
             <button
@@ -289,7 +306,90 @@ export function DesignPanel({ room, phase, selectedWall, onWallChange }: {
         </div>
       </section>
 
-      {/* Bo'yoq / Oboy / Tekstura toggle */}
+      {/* Floor controls when "Pol" is selected */}
+      {targetWall === 'FLOOR' && (
+        <>
+          {/* Turi / Rasm tabs */}
+          <section>
+            <div className="flex gap-1 p-0.5 bg-gray-100 rounded-lg">
+              {(['turi', 'rasm'] as FloorMode[]).map((mode) => (
+                <button
+                  key={mode}
+                  onClick={() => setFloorMode(mode)}
+                  className={`flex-1 py-1.5 text-xs rounded-md font-medium transition-colors ${
+                    floorMode === mode ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                  }`}
+                >
+                  {mode === 'turi' ? 'Turi' : 'Rasm'}
+                </button>
+              ))}
+            </div>
+          </section>
+
+          {floorMode === 'turi' && (
+            <section>
+              <h3 className="text-sm font-semibold text-gray-900 mb-3">{uz.studio.pol_turi}</h3>
+              <div className="space-y-2">
+                {FLOOR_TYPES.map((ft) => (
+                  <button
+                    key={ft.key}
+                    onClick={() => handleSetFloorType(ft.key)}
+                    className={`w-full text-left px-3 py-2.5 rounded-card text-sm border-2 transition-colors ${
+                      floorType === ft.key
+                        ? "border-brand bg-brand/10 text-brand font-semibold"
+                        : "border-gray-200 hover:border-brand/40 text-gray-700"
+                    }`}
+                  >
+                    {ft.label}
+                  </button>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {floorMode === 'rasm' && (
+            <section className="space-y-3">
+              <h3 className="text-sm font-semibold text-gray-900">Pol rasmi</h3>
+              <input
+                ref={floorFileRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handleFloorTextureUpload}
+              />
+              <button
+                onClick={() => floorFileRef.current?.click()}
+                className="w-full flex flex-col items-center justify-center gap-2 py-6 border-2 border-dashed border-gray-300 rounded-xl text-gray-500 hover:border-brand/50 hover:text-brand transition-colors"
+              >
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="3" width="18" height="18" rx="2"/>
+                  <circle cx="8.5" cy="8.5" r="1.5"/>
+                  <path d="M21 15l-5-5L5 21"/>
+                </svg>
+                <span className="text-sm font-medium">Rasm yuklash</span>
+                <span className="text-xs text-gray-400">JPG, PNG, WEBP</span>
+              </button>
+              {designState.floorTexture && (
+                <div className="flex items-center gap-3 p-2 bg-gray-50 rounded-lg border border-gray-200">
+                  <img src={designState.floorTexture} alt="Pol teksturasi" className="w-14 h-14 object-cover rounded-md border border-gray-200 shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-medium text-gray-700 truncate">Yuklangan rasm</p>
+                    <button
+                      onClick={() => setFloorTexture(null)}
+                      className="text-xs text-red-400 hover:text-red-600 mt-0.5"
+                    >
+                      O'chirish
+                    </button>
+                  </div>
+                </div>
+              )}
+            </section>
+          )}
+        </>
+      )}
+
+      {/* Bo'yoq / Oboy / Tekstura controls — only for actual walls */}
+      {targetWall !== 'FLOOR' && (<>
       <section>
         <div className="flex gap-1 p-0.5 bg-gray-100 rounded-lg">
           {(["paint", "oboy", "texture"] as const).map((mode) => (
@@ -668,6 +768,7 @@ export function DesignPanel({ room, phase, selectedWall, onWallChange }: {
           </div>
         )}
       </section>
+      </>)}
     </>
   )
 

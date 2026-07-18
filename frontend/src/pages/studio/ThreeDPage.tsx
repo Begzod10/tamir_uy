@@ -74,8 +74,31 @@ const FLOOR_COLORS: Record<string, string> = {
   concrete: "#9E9E9E",
 };
 
-function WoodFloor({ width, depth, floorType }: { width: number; depth: number; floorType: string }) {
+function WoodFloor({
+  width, depth, floorType, floorTexture, isSelected, onClick,
+}: {
+  width: number; depth: number; floorType: string;
+  floorTexture?: string | null;
+  isSelected?: boolean;
+  onClick?: () => void;
+}) {
+  const { invalidate } = useThree();
   const floorColor = FLOOR_COLORS[floorType] ?? FLOOR_COLORS.parquet;
+
+  // Custom texture from user upload — loaded async
+  const [customTex, setCustomTex] = useState<THREE.Texture | null>(null);
+  useEffect(() => {
+    if (!floorTexture) { setCustomTex(null); return; }
+    const loader = new THREE.TextureLoader();
+    loader.load(floorTexture, (tex) => {
+      tex.wrapS = THREE.RepeatWrapping;
+      tex.wrapT = THREE.RepeatWrapping;
+      tex.repeat.set(width / 1.0, depth / 1.0);
+      setCustomTex(tex);
+      invalidate();
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [floorTexture, width, depth]);
 
   const texture = useMemo<THREE.CanvasTexture>(() => {
     const canvas = document.createElement("canvas");
@@ -188,11 +211,21 @@ function WoodFloor({ width, depth, floorType }: { width: number; depth: number; 
   // Release GPU memory when texture is replaced or component unmounts
   useEffect(() => () => { texture.dispose() }, [texture]);
 
+  const activeTex = customTex ?? texture;
+
   return (
-    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.001, 0]} castShadow receiveShadow>
-      <planeGeometry args={[width + 0.04, depth + 0.04]} />
-      <meshStandardMaterial map={texture} roughness={0.55} metalness={0.05} envMapIntensity={0.4} />
-    </mesh>
+    <group onClick={onClick ? (e) => { e.stopPropagation(); onClick(); } : undefined}>
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.001, 0]} castShadow receiveShadow>
+        <planeGeometry args={[width + 0.04, depth + 0.04]} />
+        <meshStandardMaterial map={activeTex} roughness={0.55} metalness={0.05} envMapIntensity={0.4} />
+      </mesh>
+      {isSelected && (
+        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.003, 0]} renderOrder={1}>
+          <planeGeometry args={[width + 0.04, depth + 0.04]} />
+          <meshBasicMaterial color="#D85A30" opacity={0.18} transparent depthWrite={false} />
+        </mesh>
+      )}
+    </group>
   );
 }
 
@@ -2067,6 +2100,8 @@ export function RoomScene({
   lightsOn,
   selectedWall,
   onWallClick,
+  isFloorSelected,
+  onFloorClick,
 }: {
   room: Room;
   geometry: RoomGeometry;
@@ -2078,6 +2113,8 @@ export function RoomScene({
   lightsOn: boolean;
   selectedWall?: string | null;
   onWallClick?: (id: string) => void;
+  isFloorSelected?: boolean;
+  onFloorClick?: () => void;
 }) {
   // Legacy 4-wall ABCD rectangle — use the existing precise rendering.
   // Any other layout (N-wall from RoomPlan) uses NWallRoomShell.
@@ -2168,7 +2205,12 @@ export function RoomScene({
     <group>
       {isLegacyAbcd ? (
         <>
-          <WoodFloor width={W} depth={D} floorType={designState.floorType} />
+          <WoodFloor
+            width={W} depth={D} floorType={designState.floorType}
+            floorTexture={designState.floorTexture}
+            isSelected={isFloorSelected}
+            onClick={onFloorClick}
+          />
 
           {/* Ceiling — always present for shadow casting; layer 2 in topView hides from camera */}
           <mesh ref={ceilingRef} position={[0, H + 0.025, 0]} castShadow receiveShadow>
@@ -2715,6 +2757,11 @@ export default function ThreeDPage() {
               selectedWall={selectedWall}
               onWallClick={(id) => {
                 setSelectedWall(id);
+                setActivePhase('boyoq');
+              }}
+              isFloorSelected={selectedWall === 'FLOOR'}
+              onFloorClick={() => {
+                setSelectedWall('FLOOR');
                 setActivePhase('boyoq');
               }}
             />
