@@ -24,6 +24,28 @@ import { resolveElementPositions } from "@/lib/wallPositions";
 import { FURNITURE_CATALOG } from "@/lib/furnitureCatalog";
 import type { Room } from "@/lib/api";
 import * as THREE from "three";
+import { EffectComposer, N8AO, SMAA } from "@react-three/postprocessing";
+
+// ─── Postprocessing — N8AO ambient occlusion + SMAA anti-alias ───────────────
+// Mounted only when highQuality3d && declineCount < 2.
+// drei Html overlays (SwapButtons, drag handles) are DOM portals — unaffected
+// by the WebGL composer.
+function RealismEffects({ enabled }: { enabled: boolean }) {
+  if (!enabled) return null;
+  return (
+    <EffectComposer multisampling={0}>
+      <N8AO
+        halfRes
+        aoRadius={0.4}
+        intensity={2.5}
+        distanceFalloff={0.4}
+        quality="performance"
+        depthAwareUpsampling
+      />
+      <SMAA />
+    </EffectComposer>
+  );
+}
 
 export interface StudioContext {
   room: Room;
@@ -2270,6 +2292,7 @@ export default function ThreeDPage() {
   // Two consecutive PerformanceMonitor declines required before killing shadows / composer
   const [declineCount, setDeclineCount] = useState(0);
   const showContactShadows = declineCount < 2;
+  const useComposer = highQuality3d && declineCount < 2;
   const [toolMode, setToolMode] = useState<ToolMode>('select');
   const [lightsOn, setLightsOn] = useState(true);
   const [selectedFurId, setSelectedFurId] = useState<string | null>(null);
@@ -2577,7 +2600,7 @@ export default function ThreeDPage() {
               topView={topView}
               designState={designState}
               showContactShadows={showContactShadows}
-              composerActive={false}
+              composerActive={useComposer}
               highQuality={highQuality3d}
               lightsOn={lightsOn}
               selectedWall={selectedWall}
@@ -2590,6 +2613,8 @@ export default function ThreeDPage() {
             <DraggableFurnitureModels controlsRef={controlsRef} roomW={W} roomD={D} toolMode={toolMode} selectedId={selectedFurId} onSelectItem={setSelectedFurId} />
             <DraggableElectricalModels controlsRef={controlsRef} W={W} D={D} />
             <DraggableLightModels controlsRef={controlsRef} roomW={W} roomD={D} roomH={H} toolMode={toolMode} lightsOn={lightsOn} />
+
+            <RealismEffects enabled={useComposer} />
 
             <OrbitControls
               ref={controlsRef}
