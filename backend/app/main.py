@@ -11,7 +11,7 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.config import settings
-from app.routers import auth, apartments, rooms, catalog, leads, media, estimate, draft_rooms
+from app.routers import auth, apartments, rooms, catalog, leads, media, estimate, draft_rooms, ai
 
 
 def _configure_structlog() -> None:
@@ -64,6 +64,7 @@ def create_app() -> FastAPI:
     app.include_router(media.router, prefix="/api/v1", tags=["media"])
     app.include_router(estimate.router, prefix="/api/v1", tags=["estimate"])
     app.include_router(draft_rooms.router, prefix="/api/v1", tags=["draft-rooms"])
+    app.include_router(ai.router, prefix="/api/v1", tags=["ai"])
 
     # ------------------------------------------------------------------
     # Startup
