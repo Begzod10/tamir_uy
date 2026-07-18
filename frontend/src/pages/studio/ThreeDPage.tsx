@@ -74,6 +74,61 @@ const FLOOR_COLORS: Record<string, string> = {
   concrete: "#9E9E9E",
 };
 
+// ─── Shared wall-texture loader ───────────────────────────────────────────────
+// All Wall instances that share the same URL reuse one THREE.Texture to avoid
+// loading the same (potentially large) data-URL 4 times simultaneously.
+
+interface TexEntry { tex: THREE.Texture; aspect: number }
+const _texCache    = new Map<string, TexEntry>();
+const _texPending  = new Set<string>();
+const _texWaiters  = new Map<string, Array<(e: TexEntry) => void>>();
+
+function requestSharedTexture(
+  url: string,
+  onLoaded: (e: TexEntry) => void,
+  onError: () => void,
+): () => void {
+  const cached = _texCache.get(url);
+  if (cached) { onLoaded(cached); return () => {}; }
+
+  if (!_texWaiters.has(url)) _texWaiters.set(url, []);
+  _texWaiters.get(url)!.push(onLoaded);
+
+  if (!_texPending.has(url)) {
+    _texPending.add(url);
+    new THREE.TextureLoader().load(
+      url,
+      (t) => {
+        t.colorSpace = THREE.SRGBColorSpace;
+        t.wrapS = t.wrapT = THREE.RepeatWrapping;
+        t.needsUpdate = true;
+        const img = t.image as HTMLImageElement;
+        const aspect = (img.naturalWidth || img.width || 1) / (img.naturalHeight || img.height || 1);
+        const entry: TexEntry = { tex: t, aspect };
+        _texCache.set(url, entry);
+        _texPending.delete(url);
+        for (const cb of _texWaiters.get(url) ?? []) cb(entry);
+        _texWaiters.delete(url);
+      },
+      undefined,
+      (err) => {
+        console.warn('[WallTexture] load failed:', err);
+        _texPending.delete(url);
+        for (const _ of _texWaiters.get(url) ?? []) onError();
+        _texWaiters.delete(url);
+      },
+    );
+  }
+
+  return () => {
+    const list = _texWaiters.get(url);
+    if (list) {
+      const idx = list.indexOf(onLoaded);
+      if (idx >= 0) list.splice(idx, 1);
+    }
+  };
+}
+
 function WoodFloor({
   width, depth, floorType, floorTexture, floorTextureSettings, isSelected, onClick,
 }: {
@@ -584,29 +639,28 @@ function Wall({ length, height, thickness, covering, elements, axis, cx, cz, isS
   const [texAspect, setTexAspect] = useState(1); // texW / texH
   const textureUrl = covering.kind === 'texture' ? covering.url : null;
   const { invalidate } = useThree();
+
   useEffect(() => {
     if (!textureUrl) { setImageTexture(null); setTexAspect(1); return; }
-    let disposed = false;
-    new THREE.TextureLoader().load(
+    let cancelled = false;
+
+    // Use the cached entry immediately when already loaded
+    const cached = _texCache.get(textureUrl);
+    if (cached) {
+      setTexAspect(cached.aspect);
+      setImageTexture(cached.tex);
+      return;
+    }
+
+    const unsub = requestSharedTexture(
       textureUrl,
-      (t) => {
-        if (disposed) { t.dispose(); return; }
-        t.colorSpace = THREE.SRGBColorSpace;
-        t.wrapS = t.wrapT = THREE.RepeatWrapping;
-        t.needsUpdate = true;
-        const img = t.image as HTMLImageElement;
-        const w = img.naturalWidth || img.width || 1;
-        const h = img.naturalHeight || img.height || 1;
-        if (!disposed) { setTexAspect(w / h); setImageTexture(t); }
-      },
-      undefined,
-      () => { /* ignore load errors */ },
+      (entry) => { if (!cancelled) { setTexAspect(entry.aspect); setImageTexture(entry.tex); } },
+      () => { if (!cancelled) { setImageTexture(null); setTexAspect(1); } },
     );
-    return () => { disposed = true; };
+    return () => { cancelled = true; unsub(); };
   }, [textureUrl]);
 
-  // Trigger a render AFTER React commits the imageTexture state (demand frameloop).
-  useEffect(() => { invalidate(); }, [imageTexture, invalidate]);
+  useEffect(() => { if (imageTexture) invalidate(); }, [imageTexture, invalidate]);
 
 
   const resolvedElements = useMemo(
