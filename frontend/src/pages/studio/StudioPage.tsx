@@ -198,9 +198,10 @@ export default function StudioPage() {
     : (error as { code?: string }).code === "NOT_FOUND" ? "notfound"
     : "offline";
 
-  const room = (fetchStatus === "auth" || fetchStatus === "offline")
-    ? localRoom
-    : (apiRoom ?? localRoom);
+  // Always use localRoom for rendering: it mirrors the Zustand store so settings
+  // sheet changes (ceiling height, wall lengths) reflect immediately in all 3D views.
+  // apiRoom is used only for the status banner and initial state loading (useEffect below).
+  const room = localRoom;
 
   // When a saved room loads from API and has a full state blob, restore it into the store.
   useEffect(() => {
