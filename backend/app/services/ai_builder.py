@@ -1,6 +1,6 @@
 """Room-builder agentic service.
 
-Implements an agentic Claude tool-use loop that builds/edits a room on behalf
+Implements an agentic LLM tool-use loop that builds/edits a room on behalf
 of the user.  All changes accumulate in a RoomDraft; nothing is persisted until
 the frontend user presses "Qo'llash" (Apply).
 
@@ -39,7 +39,8 @@ Qoidalar (MAJBURIY):
 5. Ko'pi bilan 25 ta tool chaqiruv ishlating, keyin natijani xulosalang."""
 
 # ---------------------------------------------------------------------------
-# Tool definitions (Anthropic tool_use format)
+# Tool definitions (name/description/input_schema — translated to the
+# provider's function-calling format inside app/services/llm.py)
 # ---------------------------------------------------------------------------
 
 TOOLS: list[dict] = [
