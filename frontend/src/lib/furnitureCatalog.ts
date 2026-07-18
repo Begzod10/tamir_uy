@@ -5,6 +5,25 @@ export interface MaterialSlot {
   label: string
 }
 
+export type FurnitureCategory =
+  | 'divan'
+  | 'stol'
+  | 'stul'
+  | 'karavot'
+  | 'shkaf'
+  | 'lampa'
+  | 'boshqa'
+
+export const CATEGORY_LABELS: Record<FurnitureCategory, string> = {
+  divan:  'Divan',
+  stol:   'Stol',
+  stul:   "Stul",
+  karavot:'Karavot',
+  shkaf:  'Shkaf',
+  lampa:  'Lampa',
+  boshqa: 'Boshqa',
+}
+
 export interface FurnitureCatalogEntry {
   id: string
   name: string
@@ -13,6 +32,7 @@ export interface FurnitureCatalogEntry {
   dracoPath: string
   scale: number
   sizeM: { w: number; d: number; h: number }
+  category: FurnitureCategory
   /** Named material slots for per-material color overrides */
   materialSlots?: MaterialSlot[]
 }
@@ -26,6 +46,7 @@ export const FURNITURE_CATALOG: FurnitureCatalogEntry[] = [
     dracoPath: '',
     scale: 0.001,
     sizeM: { w: 1.84, d: 1.83, h: 0.82 },
+    category: 'stol',
     materialSlots: [
       { name: 'wire_115115115', label: "Yog'och" },
       { name: 'wire_088144225', label: 'Mato' },
@@ -40,6 +61,7 @@ export const FURNITURE_CATALOG: FurnitureCatalogEntry[] = [
     dracoPath: '',
     scale: 1,
     sizeM: { w: 2.10, d: 0.90, h: 0.80 },
+    category: 'divan',
     materialSlots: [
       { name: 'Fabric', label: 'Mato' },
       { name: 'Wood', label: "Yog'och" },

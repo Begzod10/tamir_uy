@@ -1370,12 +1370,11 @@ function WireLine3D({ el, panel, W, D, wireH, cw, color }: {
   return <primitive object={lineObj}/>
 }
 
-function ElektrScene({ room, geometry, designState, electricals, lights, wireConfigs }: {
+function ElektrScene({ room, geometry, designState, electricals, wireConfigs }: {
   room: Room
   geometry: RoomGeometry
   designState: DesignState
   electricals: PlacedElectrical[]
-  lights: PlacedLight[]
   wireConfigs: Record<string, WireConfig>
 }) {
   const W = room.width  > 0 ? room.width  : (geometry.walls.find(w => w.id === 'B')?.length ?? 3000) / 1000
@@ -1399,7 +1398,7 @@ function ElektrScene({ room, geometry, designState, electricals, lights, wireCon
         showContactShadows={false}
         composerActive={false}
         highQuality={false}
-        hasUserLights={lights.length > 0} lightsOn={true}
+        lightsOn={true}
       />
       {electricals.map(el => (
         <StaticElectrical3D key={el.id} el={el} W={W} D={D}/>
@@ -1414,12 +1413,11 @@ function ElektrScene({ room, geometry, designState, electricals, lights, wireCon
   )
 }
 
-function ElektrThreeDView({ room, geometry, designState, electricals, lights, wireConfigs }: {
+function ElektrThreeDView({ room, geometry, designState, electricals, wireConfigs }: {
   room: Room
   geometry: RoomGeometry
   designState: DesignState
   electricals: PlacedElectrical[]
-  lights: PlacedLight[]
   wireConfigs: Record<string, WireConfig>
 }) {
   const W = room.width  > 0 ? room.width  : (geometry.walls.find(w => w.id === 'B')?.length ?? 3000) / 1000
@@ -1439,7 +1437,7 @@ function ElektrThreeDView({ room, geometry, designState, electricals, lights, wi
         <Suspense fallback={null}>
           <ElektrScene
             room={room} geometry={geometry} designState={designState}
-            electricals={electricals} lights={lights} wireConfigs={wireConfigs}
+            electricals={electricals} wireConfigs={wireConfigs}
           />
           <OrbitControls
             target={initTarget}
@@ -1627,7 +1625,6 @@ export default function PlacementPage() {
             geometry={geometry}
             designState={designState}
             electricals={electricals}
-            lights={lights}
             wireConfigs={wireConfigs}
           />
         </div>

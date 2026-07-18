@@ -71,6 +71,7 @@ export type FloorType = 'parquet' | 'tile' | 'laminate' | 'concrete'
 export type WallCovering =
   | { kind: 'paint'; color: string }
   | { kind: 'oboy'; patternId: string; baseColor: string; accentColor: string }
+  | { kind: 'texture'; url: string; color: string; repeatX: number; repeatY: number; offsetX: number; offsetY: number; rotation: number }
 
 export interface WallPanelSettings {
   enabled: boolean
@@ -112,7 +113,7 @@ export function resolveWallColor(
   wallId?: string,
 ): string {
   const c = resolveWallCovering(coverings, wallId)
-  return c.kind === 'paint' ? c.color : c.baseColor
+  return c.kind === 'paint' ? c.color : c.kind === 'texture' ? c.color : c.baseColor
 }
 
 // ─── Payload shape from API ───────────────────────────────────────────────────

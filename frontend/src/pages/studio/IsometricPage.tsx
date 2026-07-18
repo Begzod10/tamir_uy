@@ -57,11 +57,13 @@ export default function IsometricPage() {
       : (designState.wallCoverings[targetWall] ?? designState.wallCoverings.ALL)
     if (c.kind === 'paint') {
       setCoveringMode('paint')
-    } else {
+    } else if (c.kind === 'oboy') {
       setCoveringMode('oboy')
       setSelectedPattern(c.patternId as OboyPatternId)
       setBaseColor(c.baseColor)
       setAccentColor(c.accentColor)
+    } else {
+      setCoveringMode('oboy')
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [targetWall])

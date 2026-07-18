@@ -61,6 +61,7 @@ const WizardPage = lazy(() => import("@/pages/wizard/WizardPage"));
 const StudioPage = lazy(() => import("@/pages/studio/StudioPage"));
 const ThreeDPage = lazy(() => import("@/pages/studio/ThreeDPage"));
 const PlacementPage = lazy(() => import("@/pages/studio/PlacementPage"));
+const IsometricPage = lazy(() => import("@/pages/studio/IsometricPage"));
 const WalkthroughPage = lazy(() => import("@/pages/studio/WalkthroughPage"));
 const SmetaPage = lazy(() => import("@/pages/smeta/SmetaPage"));
 const ProjectsPage = lazy(() => import("@/pages/projects/ProjectsPage"));
@@ -126,6 +127,10 @@ const routes: RouteObject[] = [
       {
         index: true,
         element: <Navigate to="ichkarida" replace />,
+      },
+      {
+        path: "yuqori",
+        element: withSuspense(<IsometricPage />),
       },
       {
         path: "ichkarida",

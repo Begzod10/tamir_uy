@@ -220,17 +220,26 @@ interface Seg {
   ry: number;
   pw: number; ph: number;
   uOffset: number; uRepeat: number; vRepeat: number;
+  /** Horizontal start position of this segment within the full wall (mm from left edge) */
+  startMm: number;
+  /** Y coordinate of the bottom edge of this segment in world metres */
+  startYm: number;
 }
 
 function WallSegment({
   seg,
   covering,
   baseTexture,
+  imageTexture,
+  texAspect,
   isSelected,
 }: {
   seg: Seg;
   covering: WallCovering;
   baseTexture: THREE.CanvasTexture | null;
+  imageTexture: THREE.Texture | null;
+  /** texW / texH of the uploaded image (1 for unknown / square) */
+  texAspect: number;
   isSelected: boolean;
 }) {
   const mat = useMemo(() => {
@@ -244,6 +253,47 @@ function WallSegment({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [covering.kind, baseTexture, seg.uOffset, seg.uRepeat, seg.vRepeat]);
 
+  // 3ds-Max-style Planar UVW mapping:
+  //   repeatX = tiles per metre (X scale, master scale control)
+  //   repeatY = vertical stretch multiplier (1.0 = no stretch, preserves aspect)
+  //   texAspect = texW/texH — used so tiles appear square when repeatX == 1 on a
+  //               square texture regardless of wall proportions.
+  //   UV continuity: each segment's UV start is derived from its physical position
+  //   within the full wall so the pattern continues seamlessly across door/window cuts.
+  const imgMat = useMemo(() => {
+    if (covering.kind !== 'texture' || !imageTexture) return null;
+    const t = imageTexture.clone();
+    t.colorSpace = imageTexture.colorSpace;
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+
+    const s = covering.repeatX;          // tiles per metre (U axis)
+    const sV = s * texAspect * covering.repeatY; // tiles per metre (V axis, aspect-corrected + user stretch)
+
+    // Horizontal: U = (wallPositionM * s + userOffsetX)
+    const uStart = (seg.startMm / 1000) * s + covering.offsetX;
+    const uOffset = ((uStart % 1) + 1) % 1;  // keep positive
+    const uRepeat = seg.pw * s;
+
+    // Vertical: V = (wallBottomM * sV + userOffsetY)
+    const vStart = seg.startYm * sV + covering.offsetY;
+    const vOffset = ((vStart % 1) + 1) % 1;
+    const vRepeat = seg.ph * sV;
+
+    t.repeat.set(uRepeat, vRepeat);
+    t.offset.set(uOffset, vOffset);
+    t.rotation = covering.rotation;
+    t.center.set(0.5, 0.5);
+    t.needsUpdate = true;
+    return t;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [covering.kind, imageTexture, texAspect, seg.startMm, seg.startYm, seg.pw, seg.ph,
+      covering.kind === 'texture' ? covering.repeatX : 0,
+      covering.kind === 'texture' ? covering.repeatY : 0,
+      covering.kind === 'texture' ? covering.offsetX : 0,
+      covering.kind === 'texture' ? covering.offsetY : 0,
+      covering.kind === 'texture' ? covering.rotation : 0,
+  ]);
+
   const paintColor = covering.kind === 'paint' ? covering.color : '#ffffff';
 
   return (
@@ -252,6 +302,9 @@ function WallSegment({
       {covering.kind === 'paint' ? (
         <meshStandardMaterial color={paintColor} roughness={0.88} metalness={0} envMapIntensity={0.3}
           emissive={isSelected ? "#D85A30" : "#000000"} emissiveIntensity={isSelected ? 0.22 : 0} />
+      ) : covering.kind === 'texture' ? (
+        <meshStandardMaterial map={imgMat ?? undefined} color="#ffffff" roughness={0.65} metalness={0} envMapIntensity={0.3}
+          emissive={isSelected ? "#D85A30" : "#000000"} emissiveIntensity={isSelected ? 0.15 : 0} />
       ) : (
         <meshStandardMaterial map={mat ?? undefined} color="#ffffff" roughness={0.9} metalness={0} envMapIntensity={0.2}
           emissive={isSelected ? "#D85A30" : "#000000"} emissiveIntensity={isSelected ? 0.15 : 0} />
@@ -428,6 +481,26 @@ function Wall({ length, height, thickness, covering, elements, axis, cx, cz, isS
     covering.kind === 'oboy' ? covering.accentColor : '',
   ]);
 
+  const [imageTexture, setImageTexture] = useState<THREE.Texture | null>(null);
+  const [texAspect, setTexAspect] = useState(1); // texW / texH
+  const textureUrl = covering.kind === 'texture' ? covering.url : null;
+  useEffect(() => {
+    if (!textureUrl) { setImageTexture(null); setTexAspect(1); return; }
+    let disposed = false;
+    new THREE.TextureLoader().load(textureUrl, (t) => {
+      if (disposed) { t.dispose(); return; }
+      t.colorSpace = THREE.SRGBColorSpace;
+      t.wrapS = t.wrapT = THREE.RepeatWrapping;
+      t.needsUpdate = true;
+      const img = t.image as HTMLImageElement;
+      const w = img.naturalWidth || img.width || 1;
+      const h = img.naturalHeight || img.height || 1;
+      if (!disposed) { setTexAspect(w / h); setImageTexture(t); }
+    });
+    return () => { disposed = true; };
+  }, [textureUrl]);
+
+
   const resolvedElements = useMemo(
     () => resolveElementPositions(elements, length * 1000),
     [elements, length],
@@ -467,7 +540,8 @@ function Wall({ length, height, thickness, covering, elements, axis, cx, cz, isS
         pw = sd
       }
 
-      return { px, py, pz, ry, pw, ph, uOffset, uRepeat, vRepeat }
+      const startYm = posY - sh / 2;  // Y of bottom edge of this segment
+      return { px, py, pz, ry, pw, ph, uOffset, uRepeat, vRepeat, startMm, startYm }
     }
 
     if (resolvedElements.length === 0) {
@@ -540,6 +614,8 @@ function Wall({ length, height, thickness, covering, elements, axis, cx, cz, isS
           seg={seg}
           covering={covering}
           baseTexture={oboyTexture}
+          imageTexture={imageTexture}
+          texAspect={texAspect}
           isSelected={isSelected}
         />
       ))}
@@ -744,39 +820,38 @@ function CeilingLightDisk({ x, z, height, emit = true }: {
 // CeilingLights renders auto-grid ONLY when no user lights are placed.
 // User-placed lights are rendered + made draggable by DraggableLightModels (in Canvas).
 function CeilingLights({
-  width, depth, height,
-  hasUserLights, lightsOn,
+  width, depth, height, lightsOn,
 }: {
   width: number; depth: number; height: number;
-  hasUserLights: boolean; lightsOn: boolean;
+  lightsOn: boolean;
 }) {
+  // Subscribe directly so the guard is never stale relative to DraggableLightModels.
+  const userLightsCount = useRoomStore((s) => s.lights.length);
   const autoPositions = useMemo(
     () => computeDiskLightPositions(width, depth),
     [width, depth],
   );
 
-  if (hasUserLights) return null;
+  if (userLightsCount > 0) return null;
 
-  // Visual fixtures — all disks show emissive glow
-  // Real lights capped at 2 regardless of fixture count (performance)
-  const poolPositions = autoPositions.slice(0, Math.min(2, autoPositions.length));
-  const poolIntensity = 1.6 / Math.max(1, poolPositions.length);
+  const perIntensity = 1.6 / Math.max(1, autoPositions.length);
   const spread = Math.max(width, depth) * 1.9;
 
   return (
     <group>
       {autoPositions.map(([x, z], i) => (
-        <CeilingLightDisk key={i} x={x} z={z} height={height} emit={lightsOn} />
-      ))}
-      {lightsOn && poolPositions.map(([x, z], i) => (
-        <pointLight
-          key={`auto-pool-${i}`}
-          position={[x, height - 0.06, z]}
-          color="#D8EEFF"
-          intensity={poolIntensity}
-          distance={spread}
-          decay={2}
-        />
+        <group key={i}>
+          <CeilingLightDisk x={x} z={z} height={height} emit={lightsOn} />
+          {lightsOn && (
+            <pointLight
+              position={[x, height - 0.06, z]}
+              color="#D8EEFF"
+              intensity={perIntensity}
+              distance={spread}
+              decay={2}
+            />
+          )}
+        </group>
       ))}
     </group>
   );
@@ -811,11 +886,7 @@ function DraggableLightModels({
   const raycaster = useMemo(() => new THREE.Raycaster(), [])
   const hitPoint = useRef(new THREE.Vector3())
 
-  const poolPositions = useMemo(() => {
-    if (!lightsOn || lights.length === 0) return []
-    return lights.slice(0, Math.min(2, lights.length))
-  }, [lights, lightsOn])
-  const poolIntensity = 1.4 / Math.max(1, poolPositions.length)
+  const perIntensity = 1.4 / Math.max(1, lights.length)
   const spread = Math.max(roomW, roomD) * 1.9
 
   function startDrag(light: PlacedLight, e: ThreeEvent<PointerEvent>) {
@@ -876,6 +947,15 @@ function DraggableLightModels({
         return (
           <group key={l.id}>
             <CeilingLightDisk x={x} z={z} height={roomH} emit={lightsOn} />
+            {lightsOn && (
+              <pointLight
+                position={[x, roomH - 0.06, z]}
+                color="#D8EEFF"
+                intensity={perIntensity}
+                distance={spread}
+                decay={2}
+              />
+            )}
             {/* Invisible drag handle on ceiling */}
             <mesh
               position={[x, roomH, z]}
@@ -888,21 +968,6 @@ function DraggableLightModels({
               <meshBasicMaterial transparent opacity={0} />
             </mesh>
           </group>
-        )
-      })}
-      {/* At most 2 pooled point lights regardless of fixture count */}
-      {poolPositions.map((l, i) => {
-        const x = l.xMm / 1000 - roomW / 2
-        const z = l.zMm / 1000 - roomD / 2
-        return (
-          <pointLight
-            key={`user-pool-${i}`}
-            position={[x, roomH - 0.06, z]}
-            color="#D8EEFF"
-            intensity={poolIntensity}
-            distance={spread}
-            decay={2}
-          />
         )
       })}
     </>
@@ -1376,23 +1441,27 @@ FURNITURE_CATALOG.forEach((e) => useGLTF.preload(e.modelPath));
 
 // ─── Draggable furniture (ThreeDPage only) ────────────────────────────────────
 
-type ToolMode = 'select' | 'move' | 'rotate'
+type ToolMode = 'select' | 'move' | 'rotate' | 'scale'
 
 function DraggableFurnitureItem({
   item,
   isDragging,
+  isSelected,
   toolMode,
   dragPosRef,
   dragRotRef,
+  dragScaleRef,
   onMeshPointerDown,
   onButtonPointerDown,
   onFootprint,
 }: {
   item: PlacedFurniture
   isDragging: boolean
+  isSelected: boolean
   toolMode: ToolMode
   dragPosRef: RefObject<THREE.Vector3>
   dragRotRef: RefObject<number>
+  dragScaleRef: RefObject<number>
   onMeshPointerDown: (e: ThreeEvent<PointerEvent>) => void
   onButtonPointerDown: (e: React.PointerEvent) => void
   onFootprint: (id: string, hw: number, hd: number) => void
@@ -1437,17 +1506,26 @@ function DraggableFurnitureItem({
       groupRef.current.position.z = dragPosRef.current.z
     } else if (toolMode === 'rotate' && primitiveRef.current && dragRotRef.current !== null) {
       primitiveRef.current.rotation.y = dragRotRef.current
+    } else if (toolMode === 'scale' && primitiveRef.current && entry) {
+      const liveScale = entry.scale * (dragScaleRef.current ?? 1)
+      primitiveRef.current.scale.setScalar(liveScale)
     }
   })
 
   if (!entry || !modelPath) return null
 
-  const interactive = toolMode !== 'select'
   const so = item.scaleOverride ?? 1
   const s = entry.scale * so
   const yOff = yOffUnit * s
-  const buttonH = (entry.sizeM.h ?? 1) * so + 0.18
+  const modelH = (entry.sizeM.h ?? 1) * so
+  const buttonH = modelH + 0.18
   const btnActive = isDragging
+  const fw = geomHW * s * 2   // actual footprint width
+  const fd = geomHD * s * 2   // actual footprint depth
+  const meshCursor = toolMode === 'select' ? 'pointer'
+                   : toolMode === 'rotate' ? 'ew-resize'
+                   : toolMode === 'scale'  ? 'ns-resize'
+                   : 'grab'
 
   return (
     <group ref={groupRef} position={[item.x / 1000, 0, item.y / 1000]}>
@@ -1457,10 +1535,37 @@ function DraggableFurnitureItem({
         position={[0, yOff, 0]}
         rotation={[0, item.rotation, 0]}
         scale={s}
-        onPointerDown={interactive ? onMeshPointerDown : undefined}
-        onPointerEnter={() => { if (interactive) document.body.style.cursor = toolMode === 'rotate' ? 'ew-resize' : 'grab' }}
+        onPointerDown={onMeshPointerDown}
+        onPointerEnter={() => { document.body.style.cursor = meshCursor }}
         onPointerLeave={() => { if (!isDragging) document.body.style.cursor = '' }}
       />
+      {/* Selection indicators — flat ground outline (top view) + 3D box (perspective) */}
+      {isSelected && (
+        <>
+          {/* Flat footprint outline — clearly visible in top/isometric view */}
+          <mesh position={[0, 0.01, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+            <planeGeometry args={[fw + 0.08, fd + 0.08]} />
+            <meshBasicMaterial color="#2563EB" transparent opacity={0} />
+          </mesh>
+          {/* Ground-level border rect using 4 thin box edges */}
+          {[
+            { pos: [0, 0.012, -(fd / 2 + 0.04)] as [number,number,number], scale: [fw + 0.08, 0.012, 0.012] as [number,number,number] },
+            { pos: [0, 0.012,  (fd / 2 + 0.04)] as [number,number,number], scale: [fw + 0.08, 0.012, 0.012] as [number,number,number] },
+            { pos: [-(fw / 2 + 0.04), 0.012, 0] as [number,number,number], scale: [0.012, 0.012, fd + 0.08] as [number,number,number] },
+            { pos: [ (fw / 2 + 0.04), 0.012, 0] as [number,number,number], scale: [0.012, 0.012, fd + 0.08] as [number,number,number] },
+          ].map((edge, i) => (
+            <mesh key={i} position={edge.pos}>
+              <boxGeometry args={edge.scale} />
+              <meshBasicMaterial color="#2563EB" />
+            </mesh>
+          ))}
+          {/* 3D wireframe box — visible in perspective view */}
+          <mesh position={[0, modelH / 2, 0]}>
+            <boxGeometry args={[fw + 0.06, modelH + 0.06, fd + 0.06]} />
+            <meshBasicMaterial color="#2563EB" wireframe />
+          </mesh>
+        </>
+      )}
       {toolMode === 'move' && (
         <Html position={[0, buttonH, 0]} center zIndexRange={[100, 0]} style={{ pointerEvents: 'none' }}>
           <button
@@ -1504,6 +1609,27 @@ function DraggableFurnitureItem({
           </button>
         </Html>
       )}
+      {toolMode === 'scale' && (
+        <Html position={[0, buttonH, 0]} center zIndexRange={[100, 0]} style={{ pointerEvents: 'none' }}>
+          <button
+            onPointerDown={(e) => { e.stopPropagation(); onButtonPointerDown(e) }}
+            title="O'lcham o'zgartirish"
+            style={{
+              pointerEvents: 'all', width: 30, height: 30, borderRadius: '50%',
+              border: btnActive ? '2px solid #059669' : '1.5px solid rgba(0,0,0,0.18)',
+              background: btnActive ? '#059669' : 'rgba(255,255,255,0.92)',
+              color: btnActive ? '#fff' : '#555',
+              cursor: 'ns-resize',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              boxShadow: '0 2px 8px rgba(0,0,0,0.22)', userSelect: 'none', touchAction: 'none',
+            }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 21H3M21 3H3M12 7v10M9 10l3-3 3 3M9 14l3 3 3-3"/>
+            </svg>
+          </button>
+        </Html>
+      )}
     </group>
   )
 }
@@ -1513,25 +1639,31 @@ function DraggableFurnitureModels({
   roomW,
   roomD,
   toolMode,
+  selectedId,
   onSelectItem,
 }: {
   controlsRef: RefObject<OrbitControlsImpl | null>
   roomW: number
   roomD: number
   toolMode: ToolMode
+  selectedId: string | null
   onSelectItem: (id: string) => void
 }) {
   const furniture = useRoomStore((s) => s.furniture)
   const userFurniture = useRoomStore((s) => s.userFurniture)
   const moveFurniture = useRoomStore((s) => s.moveFurniture)
+  const resizeFurniture = useRoomStore((s) => s.resizeFurniture)
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const dragPosRef = useRef(new THREE.Vector3())
   const dragRotRef = useRef(0)
+  const dragScaleRef = useRef(1)
   const draggingIdRef = useRef<string | null>(null)
   const furnitureRef = useRef(furniture)
   furnitureRef.current = furniture
   const dragHalfRef = useRef({ w: 0.3, d: 0.3 })
   const rotateStartXRef = useRef(0)
+  const scaleStartYRef = useRef(0)
+  const scaleStartValueRef = useRef(1)
   const rotateStartAngleRef = useRef(0)
   const { camera, gl } = useThree()
   const floorPlane = useMemo(() => new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), [])
@@ -1568,7 +1700,7 @@ function DraggableFurnitureModels({
     return false
   }
 
-  function activateDrag(item: PlacedFurniture, clientX: number) {
+  function activateDrag(item: PlacedFurniture, clientX: number, clientY = 0) {
     onSelectItem(item.id)
     if (toolMode === 'move') {
       // Prefer actual geometry footprint; fall back to catalog sizeM
@@ -1586,6 +1718,12 @@ function DraggableFurnitureModels({
       rotateStartAngleRef.current = item.rotation
       dragRotRef.current = item.rotation
       document.body.style.cursor = 'ew-resize'
+    } else if (toolMode === 'scale') {
+      const so = item.scaleOverride ?? 1
+      scaleStartYRef.current = clientY
+      scaleStartValueRef.current = so
+      dragScaleRef.current = so
+      document.body.style.cursor = 'ns-resize'
     }
     draggingIdRef.current = item.id
     setDraggingId(item.id)
@@ -1595,14 +1733,14 @@ function DraggableFurnitureModels({
   function startDragFromMesh(item: PlacedFurniture, e: ThreeEvent<PointerEvent>) {
     e.stopPropagation()
     if (toolMode === 'select') { onSelectItem(item.id); return }
-    activateDrag(item, e.clientX)
+    activateDrag(item, e.clientX, e.clientY)
   }
 
   function startDragFromButton(item: PlacedFurniture, e: React.PointerEvent) {
     e.stopPropagation()
     e.preventDefault()
     if (toolMode === 'select') { onSelectItem(item.id); return }
-    activateDrag(item, e.clientX)
+    activateDrag(item, e.clientX, e.clientY)
   }
 
   function commitDrag() {
@@ -1614,6 +1752,8 @@ function DraggableFurnitureModels({
         moveFurniture(id, dragPosRef.current.x * 1000, dragPosRef.current.z * 1000, item.rotation)
       } else if (toolMode === 'rotate') {
         moveFurniture(id, item.x, item.y, dragRotRef.current)
+      } else if (toolMode === 'scale') {
+        resizeFurniture(id, dragScaleRef.current)
       }
     }
     draggingIdRef.current = null
@@ -1652,6 +1792,10 @@ function DraggableFurnitureModels({
         const rawRot = rotateStartAngleRef.current - deltaX * (Math.PI / 120)
         const step = 5 * (Math.PI / 180)
         dragRotRef.current = Math.round(rawRot / step) * step
+      } else if (toolMode === 'scale') {
+        const deltaY = scaleStartYRef.current - e.clientY // drag up = bigger
+        const newScale = Math.max(0.1, Math.min(5, scaleStartValueRef.current * Math.pow(2, deltaY / 200)))
+        dragScaleRef.current = newScale
       }
     }
 
@@ -1671,9 +1815,11 @@ function DraggableFurnitureModels({
           <DraggableFurnitureItem
             item={item}
             isDragging={draggingId === item.id}
+            isSelected={selectedId === item.id}
             toolMode={toolMode}
             dragPosRef={dragPosRef}
             dragRotRef={dragRotRef}
+            dragScaleRef={dragScaleRef}
             onMeshPointerDown={(e) => startDragFromMesh(item, e)}
             onButtonPointerDown={(e) => startDragFromButton(item, e)}
             onFootprint={handleFootprint}
@@ -1689,6 +1835,9 @@ function DraggableFurnitureModels({
 function shadeCovering(covering: WallCovering, factor: number): WallCovering {
   if (covering.kind === 'paint') {
     return { kind: 'paint', color: shadeHex(covering.color, factor) }
+  }
+  if (covering.kind === 'texture') {
+    return { ...covering }
   }
   // For oboy, shade the baseColor only (accent stays vivid)
   return { ...covering, baseColor: shadeHex(covering.baseColor, factor) }
@@ -1773,7 +1922,9 @@ function NWallRoomShell({
           resolveWallCovering(designState.wallCoverings, wallId),
           shadeFactor,
         )
-        const baseColor = covering.kind === 'paint' ? covering.color : covering.baseColor
+        const baseColor = covering.kind === 'paint' ? covering.color
+          : covering.kind === 'texture' ? covering.color
+          : covering.baseColor
         const isSelected = selectedWall === wallId
 
         return (
@@ -1809,7 +1960,6 @@ export function RoomScene({
   showContactShadows,
   composerActive,
   highQuality,
-  hasUserLights,
   lightsOn,
   selectedWall,
   onWallClick,
@@ -1821,7 +1971,6 @@ export function RoomScene({
   showContactShadows: boolean;
   composerActive: boolean;
   highQuality: boolean;
-  hasUserLights: boolean;
   lightsOn: boolean;
   selectedWall?: string | null;
   onWallClick?: (id: string) => void;
@@ -1964,7 +2113,7 @@ export function RoomScene({
         ) : null
       )}
 
-      <CeilingLights width={W} depth={D} height={H} hasUserLights={hasUserLights} lightsOn={lightsOn} />
+      <CeilingLights width={W} depth={D} height={H} lightsOn={lightsOn} />
 
       {showContactShadows && (
         <ContactShadows
@@ -2106,7 +2255,7 @@ const RENO_STAGES: Array<{ key: PhaseKey; label: string }> = [
 
 export default function ThreeDPage() {
   const { room } = useOutletContext<StudioContext>();
-  const { geometry, designState, lights: userLights, highQuality3d } = useRoomStore();
+  const { geometry, designState, highQuality3d } = useRoomStore();
 
   // Fall back to geometry wall lengths when API room has width/length = 0
   const geoWallB = geometry.walls.find((w) => w.id === "B");
@@ -2278,6 +2427,18 @@ export default function ThreeDPage() {
                 </svg>
                 <span className="hidden sm:inline">Aylantirish</span>
               </button>
+              <button
+                onClick={() => setToolMode('scale')}
+                title="O'lcham"
+                className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium transition-colors ${
+                  toolMode === 'scale' ? 'bg-brand text-white shadow' : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 21H3M21 3H3M12 7v10M9 10l3-3 3 3M9 14l3 3 3-3"/>
+                </svg>
+                <span className="hidden sm:inline">O'lcham</span>
+              </button>
             </div>
             {toolMode === 'rotate' && selectedFurId && (() => {
               const item = furniture.find(f => f.id === selectedFurId)
@@ -2370,6 +2531,7 @@ export default function ThreeDPage() {
             toneMapping: THREE.ACESFilmicToneMapping,
             toneMappingExposure: 1.1,
           }}
+          onPointerMissed={() => setSelectedFurId(null)}
           dpr={dpr}
         >
           <color attach="background" args={["#E8E4DC"]} />
@@ -2417,7 +2579,6 @@ export default function ThreeDPage() {
               showContactShadows={showContactShadows}
               composerActive={false}
               highQuality={highQuality3d}
-              hasUserLights={userLights.length > 0}
               lightsOn={lightsOn}
               selectedWall={selectedWall}
               onWallClick={(id) => {
@@ -2426,7 +2587,7 @@ export default function ThreeDPage() {
               }}
             />
             <SwapButtons W={W} D={D} H={H} />
-            <DraggableFurnitureModels controlsRef={controlsRef} roomW={W} roomD={D} toolMode={toolMode} onSelectItem={setSelectedFurId} />
+            <DraggableFurnitureModels controlsRef={controlsRef} roomW={W} roomD={D} toolMode={toolMode} selectedId={selectedFurId} onSelectItem={setSelectedFurId} />
             <DraggableElectricalModels controlsRef={controlsRef} W={W} D={D} />
             <DraggableLightModels controlsRef={controlsRef} roomW={W} roomD={D} roomH={H} toolMode={toolMode} lightsOn={lightsOn} />
 

@@ -9,15 +9,15 @@ import type { WallCovering, WallPanelSettings } from "@/store/roomStore";
 import { OBOY_PATTERNS, getOboySvgPattern } from "@/lib/oboyPatterns";
 import type { OboyPatternId } from "@/lib/oboyPatterns";
 import { computeOboyRolls } from "@/lib/oboySmeta";
-import { FURNITURE_CATALOG } from "@/lib/furnitureCatalog";
-import type { FurnitureCatalogEntry } from "@/lib/furnitureCatalog";
+import { FURNITURE_CATALOG, CATEGORY_LABELS } from "@/lib/furnitureCatalog";
+import type { FurnitureCatalogEntry, FurnitureCategory } from "@/lib/furnitureCatalog";
 import { ModelImportButton } from "@/components/studio/ModelImportButton";
 import { useRestoreUserModels } from "@/hooks/useRestoreUserModels";
 
 type PhaseKey = 'suvoq' | 'shpaklovka' | 'boyoq' | 'pol' | 'montaj' | 'mebel'
 
 type WallTarget = "ALL" | "A" | "B" | "C" | "D";
-type CoveringMode = "paint" | "oboy";
+type CoveringMode = "paint" | "oboy" | "texture";
 
 const WALL_COLORS = [
   "#FFFFFF", "#F5F0E8", "#E8D5C4", "#D4E8D4",
@@ -111,6 +111,7 @@ export function DesignPanel({ room, phase, selectedWall, onWallChange }: {
   const [baseColor, setBaseColor] = React.useState("#F5F0E8");
   const [accentColor, setAccentColor] = React.useState("#8B6F47");
   const [selectedProductId, setSelectedProductId] = React.useState<string | null>(null);
+  const [furnitureCat, setFurnitureCat] = React.useState<FurnitureCategory | 'barchasi' | 'mening'>('barchasi');
 
   const { data: oboyProducts = [] } = useQuery({
     queryKey: ["materials", "oboy"],
@@ -126,6 +127,8 @@ export function DesignPanel({ room, phase, selectedWall, onWallChange }: {
         : (designState.wallCoverings[targetWall] ?? designState.wallCoverings.ALL);
     if (c.kind === "paint") {
       setCoveringMode("paint");
+    } else if (c.kind === "texture") {
+      setCoveringMode("texture");
     } else {
       setCoveringMode("oboy");
       setSelectedPattern(c.patternId as OboyPatternId);
@@ -190,9 +193,28 @@ export function DesignPanel({ room, phase, selectedWall, onWallChange }: {
         targetWall === "ALL" ? undefined : targetWall,
       );
       applyWallCovering({ kind: "paint", color: currentColor });
+    } else if (mode === "texture") {
+      // Don't auto-apply; wait for image upload
     } else {
       applyWallCovering({ kind: "oboy", patternId: selectedPattern, baseColor, accentColor });
     }
+  }
+
+  const textureFileRef = React.useRef<HTMLInputElement>(null);
+  function handleTextureUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const url = URL.createObjectURL(file);
+    applyWallCovering({ kind: 'texture', url, color: '#ffffff', repeatX: 0.5, repeatY: 1.0, offsetX: 0, offsetY: 0, rotation: 0 });
+    e.target.value = '';
+  }
+
+  function updateTextureProp(patch: Partial<{ repeatX: number; repeatY: number; offsetX: number; offsetY: number; rotation: number }>) {
+    const c = targetWall === 'ALL'
+      ? designState.wallCoverings.ALL
+      : (designState.wallCoverings[targetWall] ?? designState.wallCoverings.ALL)
+    if (c.kind !== 'texture') return
+    applyWallCovering({ ...c, ...patch })
   }
 
   // ─── Panel settings ─────────────────────────────────────────────────────────
@@ -267,20 +289,20 @@ export function DesignPanel({ room, phase, selectedWall, onWallChange }: {
         </div>
       </section>
 
-      {/* Bo'yoq / Oboy toggle */}
+      {/* Bo'yoq / Oboy / Tekstura toggle */}
       <section>
         <div className="flex gap-1 p-0.5 bg-gray-100 rounded-lg">
-          {(["paint", "oboy"] as const).map((mode) => (
+          {(["paint", "oboy", "texture"] as const).map((mode) => (
             <button
               key={mode}
               onClick={() => handleSetCoveringMode(mode)}
-              className={`flex-1 py-1.5 text-sm rounded-md font-medium transition-colors ${
+              className={`flex-1 py-1.5 text-xs rounded-md font-medium transition-colors ${
                 coveringMode === mode
                   ? "bg-white text-gray-900 shadow-sm"
                   : "text-gray-500 hover:text-gray-700"
               }`}
             >
-              {mode === "paint" ? "Bo'yoq" : "Oboy"}
+              {mode === "paint" ? "Bo'yoq" : mode === "oboy" ? "Oboy" : "Rasm"}
             </button>
           ))}
         </div>
@@ -375,6 +397,118 @@ export function DesignPanel({ room, phase, selectedWall, onWallChange }: {
               <input type="color" value={accentColor} onChange={(e) => handleSetOboy({ accentColor: e.target.value })} className="w-full h-8 rounded border border-gray-200 cursor-pointer" />
             </div>
           </div>
+        </section>
+      )}
+
+      {/* Texture upload */}
+      {coveringMode === "texture" && (
+        <section className="space-y-3">
+          <h3 className="text-sm font-semibold text-gray-900">Devor rasmi</h3>
+          <input
+            ref={textureFileRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={handleTextureUpload}
+          />
+          <button
+            onClick={() => textureFileRef.current?.click()}
+            className="w-full flex flex-col items-center justify-center gap-2 py-6 border-2 border-dashed border-gray-300 rounded-xl text-gray-500 hover:border-brand/50 hover:text-brand transition-colors"
+          >
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="3" width="18" height="18" rx="2"/>
+              <circle cx="8.5" cy="8.5" r="1.5"/>
+              <path d="M21 15l-5-5L5 21"/>
+            </svg>
+            <span className="text-sm font-medium">Rasm yuklash</span>
+            <span className="text-xs text-gray-400">JPG, PNG, WEBP</span>
+          </button>
+          {(() => {
+            const c = targetWall === "ALL"
+              ? designState.wallCoverings.ALL
+              : (designState.wallCoverings[targetWall] ?? designState.wallCoverings.ALL)
+            if (c.kind !== 'texture') return null
+            return (
+              <div className="space-y-3">
+                {/* Preview + remove */}
+                <div className="flex items-center gap-3 p-2 bg-gray-50 rounded-lg border border-gray-200">
+                  <img src={c.url} alt="Tekstura" className="w-14 h-14 object-cover rounded-md border border-gray-200 shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-medium text-gray-700 truncate">Yuklangan rasm</p>
+                    <button
+                      onClick={() => applyWallCovering({ kind: 'paint', color: '#F5F0E8' })}
+                      className="text-xs text-red-400 hover:text-red-600 mt-0.5"
+                    >
+                      O'chirish
+                    </button>
+                  </div>
+                </div>
+
+                {/* UVW controls */}
+                <div className="space-y-2.5 p-3 bg-gray-50 rounded-xl border border-gray-100">
+                  <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Tekstura sozlamalari</p>
+
+                  {/* Scale — value = tiles per meter; display as tile size in cm */}
+                  <div className="space-y-1">
+                    <div className="flex justify-between items-center">
+                      <label className="text-xs text-gray-600 font-medium">Masshtab X</label>
+                      <span className="text-xs text-gray-400 tabular-nums">{Math.round(100 / c.repeatX)} sm</span>
+                    </div>
+                    <input type="range" min="0.1" max="5" step="0.05" value={c.repeatX}
+                      onChange={(e) => updateTextureProp({ repeatX: parseFloat(e.target.value) })}
+                      className="w-full accent-brand h-1.5" />
+                  </div>
+                  <div className="space-y-1">
+                    <div className="flex justify-between items-center">
+                      <label className="text-xs text-gray-600 font-medium">Vertikal cho'zish</label>
+                      <span className="text-xs text-gray-400 tabular-nums">{c.repeatY.toFixed(2)}×</span>
+                    </div>
+                    <input type="range" min="0.1" max="4" step="0.05" value={c.repeatY}
+                      onChange={(e) => updateTextureProp({ repeatY: parseFloat(e.target.value) })}
+                      className="w-full accent-brand h-1.5" />
+                  </div>
+
+                  {/* Rotation */}
+                  <div className="space-y-1">
+                    <div className="flex justify-between items-center">
+                      <label className="text-xs text-gray-600 font-medium">Burish</label>
+                      <span className="text-xs text-gray-400 tabular-nums">{Math.round(c.rotation * 180 / Math.PI)}°</span>
+                    </div>
+                    <input type="range" min="0" max={Math.PI * 2} step={Math.PI / 36} value={c.rotation}
+                      onChange={(e) => updateTextureProp({ rotation: parseFloat(e.target.value) })}
+                      className="w-full accent-brand h-1.5" />
+                  </div>
+
+                  {/* Offset */}
+                  <div className="space-y-1">
+                    <div className="flex justify-between items-center">
+                      <label className="text-xs text-gray-600 font-medium">Siljish X</label>
+                      <span className="text-xs text-gray-400 tabular-nums">{c.offsetX.toFixed(2)}</span>
+                    </div>
+                    <input type="range" min="0" max="1" step="0.01" value={c.offsetX}
+                      onChange={(e) => updateTextureProp({ offsetX: parseFloat(e.target.value) })}
+                      className="w-full accent-brand h-1.5" />
+                  </div>
+                  <div className="space-y-1">
+                    <div className="flex justify-between items-center">
+                      <label className="text-xs text-gray-600 font-medium">Siljish Y</label>
+                      <span className="text-xs text-gray-400 tabular-nums">{c.offsetY.toFixed(2)}</span>
+                    </div>
+                    <input type="range" min="0" max="1" step="0.01" value={c.offsetY}
+                      onChange={(e) => updateTextureProp({ offsetY: parseFloat(e.target.value) })}
+                      className="w-full accent-brand h-1.5" />
+                  </div>
+
+                  <button
+                    onClick={() => updateTextureProp({ repeatX: 0.5, repeatY: 1.0, offsetX: 0, offsetY: 0, rotation: 0 })}
+                    className="text-xs text-gray-400 hover:text-gray-600 transition-colors"
+                  >
+                    Standartga qaytarish
+                  </button>
+                </div>
+              </div>
+            )
+          })()}
         </section>
       )}
 
@@ -563,13 +697,43 @@ export function DesignPanel({ room, phase, selectedWall, onWallChange }: {
     ...userFurniture.map(e => ({ ...e, isUser: true as const })),
   ]
 
+  const catChips: Array<{ key: FurnitureCategory | 'barchasi' | 'mening'; label: string }> = [
+    { key: 'barchasi', label: 'Barchasi' },
+    ...Object.entries(CATEGORY_LABELS).map(([k, v]) => ({ key: k as FurnitureCategory, label: v })),
+    { key: 'mening', label: 'Mening' },
+  ]
+
+  const filteredEntries = allCatalogEntries.filter((e) => {
+    if (furnitureCat === 'barchasi') return true
+    if (furnitureCat === 'mening') return e.isUser
+    if (e.isUser) return false
+    return (e as FurnitureCatalogEntry).category === furnitureCat
+  })
+
   const MebelSection = (
     <section>
-      <h3 className="text-sm font-semibold text-gray-900 mb-3">3D Modellar</h3>
+      <h3 className="text-sm font-semibold text-gray-900 mb-2">3D Modellar</h3>
 
-      {/* Full catalog grid */}
+      {/* Category chips */}
+      <div className="flex gap-1.5 flex-wrap mb-3">
+        {catChips.map((c) => (
+          <button
+            key={c.key}
+            onClick={() => setFurnitureCat(c.key)}
+            className={`px-2.5 py-1 rounded-full text-[11px] font-medium border transition-colors whitespace-nowrap ${
+              furnitureCat === c.key
+                ? 'bg-brand text-white border-brand'
+                : 'bg-white text-gray-600 border-gray-200 hover:border-brand/50 hover:text-brand'
+            }`}
+          >
+            {c.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Catalog grid */}
       <div className="grid grid-cols-2 gap-2 mb-3">
-        {allCatalogEntries.map((entry) => {
+        {filteredEntries.map((entry) => {
           const count = furniture.filter((f) => f.furniture_id === entry.id).length;
           const ready = !entry.isUser || !!entry.modelPath;
           return (

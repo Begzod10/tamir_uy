@@ -115,7 +115,7 @@ function EnterOverlay({ onEnter }: { onEnter: () => void }) {
 
 export default function WalkthroughPage() {
   const { room } = useOutletContext<StudioContext>();
-  const { geometry, designState, lights } = useRoomStore();
+  const { geometry, designState } = useRoomStore();
   const [locked, setLocked] = useState(false);
   const controlsRef = useRef<PointerLockControlsImpl | null>(null);
 
@@ -153,7 +153,7 @@ export default function WalkthroughPage() {
             showContactShadows={false}
             composerActive={false}
             highQuality={true}
-            hasUserLights={lights.length > 0} lightsOn={true}
+            lightsOn={true}
           />
 
           <Suspense fallback={null}>

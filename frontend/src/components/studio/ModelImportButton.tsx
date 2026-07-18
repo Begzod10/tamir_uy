@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { nanoid } from 'nanoid'
-import { parseGlbInfo } from '@/lib/glbValidator'
+import { convertToGlb, SUPPORTED_FORMATS } from '@/lib/modelConverter'
 import { saveModelToDb, arrayBufferToBlobUrl } from '@/lib/modelDb'
 import { useRoomStore } from '@/store/roomStore'
 import { useGLTF } from '@react-three/drei'
@@ -15,19 +15,12 @@ export function ModelImportButton({ compact = false }: { compact?: boolean }) {
     setStatus('loading')
     setWarn(null)
     try {
-      const buffer = await file.arrayBuffer()
-      const info = parseGlbInfo(buffer)
-
-      if (!info.valid) {
-        setStatus('error')
-        setWarn('Fayl GLB formatida emas. Faqat .glb fayllar qabul qilinadi.')
-        return
-      }
+      const { buffer, info } = await convertToGlb(file)
 
       if (!info.hasTextures) {
         setWarn(
           `Bu model tekstura xaritalarisiz (${info.materialCount} material, faqat rang). ` +
-          `Yaxshi ko'rinish uchun teksturalı GLB yuklang.`
+          `Yaxshi ko'rinish uchun teksturalı GLB yuklang.`,
         )
       }
 
@@ -35,12 +28,12 @@ export function ModelImportButton({ compact = false }: { compact?: boolean }) {
       await saveModelToDb(id, buffer)
       const modelPath = arrayBufferToBlobUrl(buffer)
 
-      // Preload so first render is instant
       useGLTF.preload(modelPath)
 
+      const baseName = file.name.replace(/\.(glb|gltf|obj|fbx)$/i, '').replace(/_/g, ' ')
       addUserFurniture({
         id,
-        name: file.name.replace(/\.glb$/i, '').replace(/_/g, ' '),
+        name: baseName,
         emoji: '📦',
         blobId: id,
         modelPath,
@@ -51,11 +44,17 @@ export function ModelImportButton({ compact = false }: { compact?: boolean }) {
 
       setStatus('done')
       setTimeout(() => setStatus('idle'), 1500)
-    } catch {
+    } catch (err) {
       setStatus('error')
-      setWarn('Faylni o\'qishda xatolik yuz berdi.')
+      const msg = err instanceof Error ? err.message : ''
+      setWarn(msg || 'Faylni o\'qishda xatolik yuz berdi.')
     }
   }
+
+  const label =
+    status === 'loading' ? 'Yuklanmoqda' :
+    status === 'done'    ? 'Qo\'shildi'  :
+                           'Model yuklash'
 
   if (compact) {
     return (
@@ -63,7 +62,7 @@ export function ModelImportButton({ compact = false }: { compact?: boolean }) {
         <input
           ref={fileRef}
           type="file"
-          accept=".glb"
+          accept={SUPPORTED_FORMATS}
           className="hidden"
           onChange={(e) => {
             const f = e.target.files?.[0]
@@ -75,10 +74,11 @@ export function ModelImportButton({ compact = false }: { compact?: boolean }) {
           disabled={status === 'loading'}
           className="flex flex-col items-center gap-1 text-gray-400 hover:text-brand transition-colors px-3 py-2"
         >
-          <span className="text-2xl">{status === 'loading' ? '⏳' : status === 'done' ? '✅' : '+'}</span>
-          <span className="text-[10px] font-medium text-center leading-tight">
-            {status === 'loading' ? 'Yuklanmoqda' : status === 'done' ? 'Qo\'shildi' : 'GLB yuklash'}
+          <span className="text-2xl">
+            {status === 'loading' ? '⏳' : status === 'done' ? '✅' : '+'}
           </span>
+          <span className="text-[10px] font-medium text-center leading-tight">{label}</span>
+          <span className="text-[9px] text-gray-400 leading-tight">GLB · GLTF · OBJ · FBX</span>
         </button>
       </>
     )
@@ -89,7 +89,7 @@ export function ModelImportButton({ compact = false }: { compact?: boolean }) {
       <input
         ref={fileRef}
         type="file"
-        accept=".glb"
+        accept={SUPPORTED_FORMATS}
         className="hidden"
         onChange={(e) => {
           const f = e.target.files?.[0]
@@ -107,11 +107,11 @@ export function ModelImportButton({ compact = false }: { compact?: boolean }) {
             : 'border-gray-300 text-gray-500 hover:border-brand/50 hover:text-brand'
         }`}
       >
-        {status === 'loading' ? 'Yuklanmoqda...' : status === 'done' ? '✓ Qo\'shildi' : '+ GLB model qo\'shish'}
+        {status === 'loading' ? 'Yuklanmoqda...' :
+         status === 'done'    ? '✓ Qo\'shildi'  :
+                                '+ Model qo\'shish (GLB · GLTF · OBJ · FBX)'}
       </button>
-      {warn && (
-        <p className="text-xs text-amber-600 leading-snug">{warn}</p>
-      )}
+      {warn && <p className="text-xs text-amber-600 leading-snug">{warn}</p>}
     </div>
   )
 }

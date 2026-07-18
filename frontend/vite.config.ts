@@ -4,6 +4,7 @@ import { VitePWA } from "vite-plugin-pwa";
 import path from "path";
 
 export default defineConfig({
+  cacheDir: "/tmp/vite-cache",
   plugins: [
     react(),
     VitePWA({

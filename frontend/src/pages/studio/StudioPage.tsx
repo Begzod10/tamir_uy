@@ -1,5 +1,6 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { NavLink, Outlet, useParams, useNavigate, useLocation } from "react-router-dom";
+import RoomSettingsSheet from "@/components/studio/RoomSettingsSheet";
 import { useQuery } from "@tanstack/react-query";
 import { getRoom, getDraftRoom, createApartment, createRoom, updateRoom } from "@/lib/api";
 import type { Room } from "@/lib/api";
@@ -45,6 +46,7 @@ export default function StudioPage() {
   const { draftId, loadDraftState } = useRoomStore();
   const isDirty = useRoomStore((s) => s.isDirty);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   async function handleSave() {
     if (saveStatus === 'saving') return;
@@ -242,12 +244,18 @@ export default function StudioPage() {
             </svg>
           </NavLink>
           {/* Title + dims */}
-          <div className="flex-1 min-w-0 text-center">
+          <button
+            className="flex-1 min-w-0 text-center"
+            onClick={() => setSettingsOpen(true)}
+          >
             <p className="text-[16px] sm:text-[20px] font-extrabold text-gray-900 truncate">{room.name}</p>
-            <p className="text-[11px] text-muted hidden sm:block">
+            <p className="text-[11px] text-muted flex items-center justify-center gap-1">
               {room.length?.toFixed(1)} × {room.width?.toFixed(1)} × {room.ceiling_height?.toFixed(1)} m
+              <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M7 1.5L8.5 3 3.5 8H2V6.5L7 1.5z"/>
+              </svg>
             </p>
-          </div>
+          </button>
           {/* Save + kebab */}
           <div className="flex items-center gap-2 flex-shrink-0">
             <button
@@ -287,6 +295,8 @@ export default function StudioPage() {
           )}
         </div>
       )}
+
+      <RoomSettingsSheet open={settingsOpen} onClose={() => setSettingsOpen(false)} />
 
       {/* Content */}
       <main className="flex-1 overflow-hidden">
