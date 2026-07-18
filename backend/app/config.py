@@ -72,9 +72,10 @@ class Settings(BaseSettings):
     # AI features
     # ------------------------------------------------------------------ #
     AI_FEATURES_ENABLED: bool = False
-    ANTHROPIC_API_KEY: str = ""
-    AI_MODEL_BUILDER: str = "claude-sonnet-5"
-    AI_MODEL_EXPLAINER: str = "claude-haiku-4-5-20251001"
+    # Gemini (google-genai) — see app/services/llm.py
+    GEMINI_API_KEY: str = ""
+    AI_MODEL_BUILDER: str = "gemini-3.5-flash"
+    AI_MODEL_EXPLAINER: str = "gemini-flash-latest"
 
     # ------------------------------------------------------------------ #
     # Application
