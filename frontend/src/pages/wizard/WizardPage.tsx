@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   useRoomStore,
@@ -585,6 +585,9 @@ export default function WizardPage() {
     resetRoom,
   } = useRoomStore()
 
+  const [searchParams] = useSearchParams()
+  const existingApartmentId = searchParams.get('apartmentId') ?? null
+
   const [step, setStep] = React.useState(0)
   const [dir, setDir] = React.useState(1)
   const [saving, setSaving] = React.useState(false)
@@ -661,8 +664,8 @@ export default function WizardPage() {
     setRoomId(localId)
     setSaving(true)
     try {
-      const apt = await createApartment({ name: 'Mening kvartiram' })
-      const room = await createRoom(apt.id, {
+      const aptId = existingApartmentId ?? (await createApartment({ name: 'Mening kvartiram' })).id
+      const room = await createRoom(aptId, {
         name: 'Xona',
         ceiling_h: ceilingHeight / 1000,
         geometry: {

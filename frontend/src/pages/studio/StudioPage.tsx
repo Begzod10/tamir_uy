@@ -168,9 +168,11 @@ export default function StudioPage() {
 
   type FetchStatus = "ok" | "auth" | "notfound" | "offline";
 
-  const { data: apiRoom, isLoading, error } = useQuery({
+  const { data: apiRoom, error } = useQuery({
     queryKey: ["room", roomId],
     queryFn: async (): Promise<Room | null> => {
+      const controller = new AbortController();
+      const t = setTimeout(() => controller.abort(), 5000);
       try {
         return await getRoom(roomId!);
       } catch (err) {
@@ -182,6 +184,8 @@ export default function StudioPage() {
           throw Object.assign(new Error("notfound"), { code: "NOT_FOUND" });
         }
         return null; // offline / network error → fall back to local
+      } finally {
+        clearTimeout(t);
       }
     },
     enabled: !!roomId,
@@ -208,14 +212,6 @@ export default function StudioPage() {
     loadDraftState(state);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [apiRoom]);
-
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen bg-paper">
-        <span className="text-muted animate-pulse">{uz.common.yuklanmoqda}</span>
-      </div>
-    );
-  }
 
   // 404 with no local data → show not-found
   if (fetchStatus === "notfound" && !storeState.isDirty) {
@@ -307,7 +303,7 @@ export default function StudioPage() {
             </div>
           }
         >
-          <Outlet context={{ room }} />
+          <Outlet context={{ room, onSave: handleSave }} />
         </Suspense>
       </main>
     </div>

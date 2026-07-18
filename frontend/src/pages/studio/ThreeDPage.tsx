@@ -12,7 +12,7 @@ import {
   RoundedBox,
 } from "@react-three/drei";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
-import { useOutletContext } from "react-router-dom";
+import { useOutletContext, useNavigate } from "react-router-dom";
 import { useRoomStore, resolveWallCovering, resolveWallPanel } from "@/store/roomStore";
 import type { PlacedFurniture, UserFurnitureEntry, PlacedLight, PlacedElectrical, WallPanelSettings } from "@/store/roomStore";
 import { DesignPanel } from "@/components/studio/DesignPanel";
@@ -50,6 +50,7 @@ function RealismEffects({ enabled }: { enabled: boolean }) {
 
 export interface StudioContext {
   room: Room;
+  onSave: () => Promise<void>;
 }
 
 // ─── Surface color defaults ───────────────────────────────────────────────────
@@ -1377,6 +1378,55 @@ const SwapButtons = memo(function SwapButtons({ W, D, H }: { W: number; D: numbe
   return <>{items}</>;
 });
 
+// ─── Add-room "+" buttons shown around the room in top-down view ──────────────
+
+const ADD_ROOM_BTN_STYLE: React.CSSProperties = {
+  width: '44px',
+  height: '44px',
+  borderRadius: '50%',
+  border: '2.5px solid #D85A30',
+  background: 'rgba(255,255,255,0.92)',
+  cursor: 'pointer',
+  fontSize: '22px',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  boxShadow: '0 2px 12px rgba(0,0,0,0.22)',
+  color: '#D85A30',
+  fontWeight: 'bold',
+  userSelect: 'none',
+  lineHeight: 1,
+};
+
+function AddRoomButtons({ W, D, H, onAdd, disabled }: { W: number; D: number; H: number; onAdd: () => void; disabled?: boolean }) {
+  const btnY = H * 0.5;
+  const gap = 1.5;
+
+  const sides: { key: string; pos: [number, number, number] }[] = [
+    { key: 'north', pos: [0,             btnY, -(D / 2 + gap)] },
+    { key: 'south', pos: [0,             btnY,  D / 2 + gap]   },
+    { key: 'east',  pos: [ W / 2 + gap,  btnY, 0]              },
+    { key: 'west',  pos: [-(W / 2 + gap), btnY, 0]             },
+  ];
+
+  return (
+    <>
+      {sides.map(({ key, pos }) => (
+        <Html key={key} position={pos} center zIndexRange={[100, 0]}>
+          <button
+            style={{ ...ADD_ROOM_BTN_STYLE, opacity: disabled ? 0.6 : 1, cursor: disabled ? 'wait' : 'pointer' }}
+            onClick={onAdd}
+            disabled={disabled}
+            title="Xona qo'shish"
+          >
+            {disabled ? '…' : '+'}
+          </button>
+        </Html>
+      ))}
+    </>
+  );
+}
+
 // ─── Shared furniture entry (catalog + user-uploaded) ─────────────────────────
 
 type AnyFurnitureEntry = {
@@ -2307,8 +2357,19 @@ const RENO_STAGES: Array<{ key: PhaseKey; label: string }> = [
 ]
 
 export default function ThreeDPage() {
-  const { room } = useOutletContext<StudioContext>();
+  const { room, onSave } = useOutletContext<StudioContext>();
   const { geometry, designState, highQuality3d } = useRoomStore();
+  const navigate = useNavigate();
+  const [addingRoom, setAddingRoom] = useState(false);
+
+  async function handleAddRoom() {
+    if (addingRoom) return;
+    setAddingRoom(true);
+    try { await onSave(); } catch { /* continue even if save fails (offline mode) */ }
+    setAddingRoom(false);
+    const aptId = room.apartment_id && room.apartment_id !== 'local' ? room.apartment_id : null;
+    navigate(aptId ? `/wizard?apartmentId=${aptId}` : '/wizard');
+  }
 
   // Fall back to geometry wall lengths when API room has width/length = 0
   const geoWallB = geometry.walls.find((w) => w.id === "B");
@@ -2653,6 +2714,7 @@ export default function ThreeDPage() {
               }}
             />
             <SwapButtons W={W} D={D} H={H} />
+            {topView && <AddRoomButtons W={W} D={D} H={H} onAdd={handleAddRoom} disabled={addingRoom} />}
             <DraggableFurnitureModels controlsRef={controlsRef} roomW={W} roomD={D} toolMode={toolMode} selectedId={selectedFurId} onSelectItem={setSelectedFurId} />
             <DraggableElectricalModels controlsRef={controlsRef} W={W} D={D} />
             <DraggableLightModels controlsRef={controlsRef} roomW={W} roomD={D} roomH={H} toolMode={toolMode} lightsOn={lightsOn} highQuality={highQuality3d} />
