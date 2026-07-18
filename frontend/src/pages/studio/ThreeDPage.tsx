@@ -831,7 +831,7 @@ function CeilingLightDisk({ x, z, height, emit = true }: {
         <meshStandardMaterial
           color={emit ? "#F0F8FF" : "#707070"}
           emissive={emit ? "#C8E8FF" : "#000000"}
-          emissiveIntensity={emit ? 5 : 0}
+          emissiveIntensity={emit ? 2.2 : 0.4}
           roughness={1}
         />
       </mesh>
@@ -841,13 +841,16 @@ function CeilingLightDisk({ x, z, height, emit = true }: {
 
 // CeilingLights renders auto-grid ONLY when no user lights are placed.
 // User-placed lights are rendered + made draggable by DraggableLightModels (in Canvas).
+// Real pointLights are pooled: max 4 on highQuality, max 2 on mobile, evenly spread
+// across the fixture grid so total output stays constant regardless of fixture count.
+// Fixture disks always react to lightsOn via emissiveIntensity (uniform visual toggle).
 function CeilingLights({
-  width, depth, height, lightsOn,
+  width, depth, height, lightsOn, highQuality,
 }: {
   width: number; depth: number; height: number;
   lightsOn: boolean;
+  highQuality: boolean;
 }) {
-  // Subscribe directly so the guard is never stale relative to DraggableLightModels.
   const userLightsCount = useRoomStore((s) => s.lights.length);
   const autoPositions = useMemo(
     () => computeDiskLightPositions(width, depth),
@@ -856,24 +859,38 @@ function CeilingLights({
 
   if (userLightsCount > 0) return null;
 
-  const perIntensity = 1.6 / Math.max(1, autoPositions.length);
   const spread = Math.max(width, depth) * 1.9;
+  const nLights = highQuality
+    ? Math.min(4, autoPositions.length)
+    : Math.min(2, autoPositions.length);
+  const perIntensity = 1.6 / Math.max(1, nLights);
+
+  // Pick evenly-spaced positions from the auto-grid for the real pointLights
+  const poolPositions: [number, number][] = [];
+  if (autoPositions.length > 0 && nLights > 0) {
+    const step = autoPositions.length / nLights;
+    for (let k = 0; k < nLights; k++) {
+      const idx = Math.min(Math.round(k * step), autoPositions.length - 1);
+      poolPositions.push(autoPositions[idx]);
+    }
+  }
 
   return (
     <group>
+      {/* Emissive disks — always rendered, brightness follows lightsOn */}
       {autoPositions.map(([x, z], i) => (
-        <group key={i}>
-          <CeilingLightDisk x={x} z={z} height={height} emit={lightsOn} />
-          {lightsOn && (
-            <pointLight
-              position={[x, height - 0.06, z]}
-              color="#D8EEFF"
-              intensity={perIntensity}
-              distance={spread}
-              decay={2}
-            />
-          )}
-        </group>
+        <CeilingLightDisk key={i} x={x} z={z} height={height} emit={lightsOn} />
+      ))}
+      {/* Pooled real pointLights — only when on */}
+      {lightsOn && poolPositions.map(([x, z], k) => (
+        <pointLight
+          key={k}
+          position={[x, height - 0.06, z]}
+          color="#D8EEFF"
+          intensity={perIntensity}
+          distance={spread}
+          decay={2}
+        />
       ))}
     </group>
   );
@@ -888,6 +905,7 @@ function DraggableLightModels({
   roomH,
   toolMode,
   lightsOn,
+  highQuality,
 }: {
   controlsRef: RefObject<OrbitControlsImpl | null>
   roomW: number
@@ -895,6 +913,7 @@ function DraggableLightModels({
   roomH: number
   toolMode: ToolMode
   lightsOn: boolean
+  highQuality: boolean
 }) {
   const lights = useRoomStore((s) => s.lights)
   const moveLight = useRoomStore((s) => s.moveLight)
@@ -908,8 +927,13 @@ function DraggableLightModels({
   const raycaster = useMemo(() => new THREE.Raycaster(), [])
   const hitPoint = useRef(new THREE.Vector3())
 
-  const perIntensity = 1.4 / Math.max(1, lights.length)
-  const spread = Math.max(roomW, roomD) * 1.9
+  const nLights = highQuality ? Math.min(4, lights.length) : Math.min(2, lights.length);
+  const perIntensity = 1.4 / Math.max(1, nLights);
+  const spread = Math.max(roomW, roomD) * 1.9;
+  // Pick evenly-spaced lights from the user-placed set for real pointLights
+  const pooledLights = lights.length > 0 && nLights > 0
+    ? Array.from({ length: nLights }, (_, k) => lights[Math.min(Math.round(k * lights.length / nLights), lights.length - 1)])
+    : [];
 
   function startDrag(light: PlacedLight, e: ThreeEvent<PointerEvent>) {
     if (toolMode === 'select') return
@@ -962,6 +986,21 @@ function DraggableLightModels({
   if (lights.length === 0) return null
   return (
     <>
+      {/* Pooled real pointLights — evenly spread across user-placed fixtures */}
+      {lightsOn && pooledLights.map((l, k) => {
+        const px = l.xMm / 1000 - roomW / 2
+        const pz = l.zMm / 1000 - roomD / 2
+        return (
+          <pointLight
+            key={k}
+            position={[px, roomH - 0.06, pz]}
+            color="#D8EEFF"
+            intensity={perIntensity}
+            distance={spread}
+            decay={2}
+          />
+        )
+      })}
       {lights.map((l) => {
         const x = l.xMm / 1000 - roomW / 2
         const z = l.zMm / 1000 - roomD / 2
@@ -969,15 +1008,6 @@ function DraggableLightModels({
         return (
           <group key={l.id}>
             <CeilingLightDisk x={x} z={z} height={roomH} emit={lightsOn} />
-            {lightsOn && (
-              <pointLight
-                position={[x, roomH - 0.06, z]}
-                color="#D8EEFF"
-                intensity={perIntensity}
-                distance={spread}
-                decay={2}
-              />
-            )}
             {/* Invisible drag handle on ceiling */}
             <mesh
               position={[x, roomH, z]}
@@ -2135,7 +2165,7 @@ export function RoomScene({
         ) : null
       )}
 
-      <CeilingLights width={W} depth={D} height={H} lightsOn={lightsOn} />
+      <CeilingLights width={W} depth={D} height={H} lightsOn={lightsOn} highQuality={highQuality} />
 
       {showContactShadows && (
         <ContactShadows
@@ -2612,7 +2642,7 @@ export default function ThreeDPage() {
             <SwapButtons W={W} D={D} H={H} />
             <DraggableFurnitureModels controlsRef={controlsRef} roomW={W} roomD={D} toolMode={toolMode} selectedId={selectedFurId} onSelectItem={setSelectedFurId} />
             <DraggableElectricalModels controlsRef={controlsRef} W={W} D={D} />
-            <DraggableLightModels controlsRef={controlsRef} roomW={W} roomD={D} roomH={H} toolMode={toolMode} lightsOn={lightsOn} />
+            <DraggableLightModels controlsRef={controlsRef} roomW={W} roomD={D} roomH={H} toolMode={toolMode} lightsOn={lightsOn} highQuality={highQuality3d} />
 
             <RealismEffects enabled={useComposer} />
 
