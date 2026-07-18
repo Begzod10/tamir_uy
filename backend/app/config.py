@@ -69,6 +69,14 @@ class Settings(BaseSettings):
     OTP_GLOBAL_DAILY_LIMIT: int = 2000
 
     # ------------------------------------------------------------------ #
+    # AI features
+    # ------------------------------------------------------------------ #
+    AI_FEATURES_ENABLED: bool = False
+    ANTHROPIC_API_KEY: str = ""
+    AI_MODEL_BUILDER: str = "claude-sonnet-5"
+    AI_MODEL_EXPLAINER: str = "claude-haiku-4-5-20251001"
+
+    # ------------------------------------------------------------------ #
     # Application
     # ------------------------------------------------------------------ #
     ENVIRONMENT: str = "development"
