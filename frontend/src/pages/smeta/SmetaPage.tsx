@@ -5,6 +5,7 @@ import { createEstimate, getEstimatePDF, getRoom } from "@/lib/api";
 import { formatUZS } from "@/lib/utils";
 import { uz } from "@/locale/uz";
 import type { EstimateResponse } from "@/lib/api";
+import { SmetaAskDrawer } from "@/components/smeta/SmetaAskDrawer";
 
 function downloadBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
@@ -19,6 +20,8 @@ export default function SmetaPage() {
   const { roomId } = useParams<{ roomId: string }>();
   const [estimate, setEstimate] = useState<EstimateResponse | null>(null);
   const [pdfLoading, setPdfLoading] = useState(false);
+  const [askOpen, setAskOpen] = useState(false);
+  const [highlightedLines, setHighlightedLines] = useState<Set<string>>(new Set());
 
   const { data: room } = useQuery({
     queryKey: ["room", roomId],
@@ -42,6 +45,11 @@ export default function SmetaPage() {
     } finally {
       setPdfLoading(false);
     }
+  }
+
+  function handleHighlight(lineIds: string[]) {
+    setHighlightedLines(new Set(lineIds));
+    setTimeout(() => setHighlightedLines(new Set()), 8000);
   }
 
   return (
@@ -145,7 +153,12 @@ export default function SmetaPage() {
                     {estimate.lines.map((line, idx) => (
                       <tr
                         key={idx}
-                        className="border-b border-gray-100 hover:bg-gray-50 transition-colors"
+                        className={[
+                          "border-b border-gray-100 transition-colors",
+                          highlightedLines.has(String(idx))
+                            ? "bg-yellow-50 ring-1 ring-yellow-300"
+                            : "hover:bg-gray-50",
+                        ].join(" ")}
                       >
                         <td className="px-4 py-3 font-medium text-gray-900">
                           {line.label}
@@ -189,6 +202,16 @@ export default function SmetaPage() {
               >
                 {uz.smeta.qayta_hisoblash}
               </button>
+              {/* AI ask button — only shown when estimate is available */}
+              <button
+                onClick={() => setAskOpen(true)}
+                className="flex items-center gap-2 bg-purple-600 text-white px-5 py-2.5 rounded-card text-sm font-semibold hover:bg-purple-700 transition-colors"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3M12 17h.01"/>
+                </svg>
+                {uz.ai.smeta_sarlavha}
+              </button>
               <Link
                 to="/ustalar"
                 className="flex items-center gap-2 bg-success text-white px-5 py-2.5 rounded-card text-sm font-semibold hover:bg-success/90 transition-colors"
@@ -204,6 +227,15 @@ export default function SmetaPage() {
           </div>
         )}
       </main>
+
+      {roomId && (
+        <SmetaAskDrawer
+          open={askOpen}
+          onOpenChange={setAskOpen}
+          roomId={roomId}
+          onHighlight={handleHighlight}
+        />
+      )}
     </div>
   );
 }

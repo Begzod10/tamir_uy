@@ -17,6 +17,7 @@ import { useRoomStore, resolveWallCovering, resolveWallPanel } from "@/store/roo
 import type { PlacedFurniture, UserFurnitureEntry, PlacedLight, PlacedElectrical, WallPanelSettings } from "@/store/roomStore";
 import { DesignPanel } from "@/components/studio/DesignPanel";
 import { AddObjectSheet } from "@/components/studio/AddObjectSheet";
+import { AiBuilderSheet } from "@/components/studio/AiBuilderSheet";
 import type { RoomGeometry, DesignState, WallCovering, WallElement } from "@/store/roomStore";
 import { createOboyTexture } from "@/lib/oboyPatterns";
 import type { OboyPatternId } from "@/lib/oboyPatterns";
@@ -2331,6 +2332,7 @@ export default function ThreeDPage() {
   const moveFurniture = useRoomStore((s) => s.moveFurniture);
   const [activePhase, setActivePhase] = useState<PhaseKey>('boyoq');
   const [showAddSheet, setShowAddSheet] = useState(false);
+  const [showAiSheet, setShowAiSheet] = useState(false);
   const [selectedWall, setSelectedWall] = useState<string | null>(null);
   const [showPanel, setShowPanel] = useState(false);
   const addSheetSection: 'wallpaper' | 'lyustra' | 'furniture' =
@@ -2538,6 +2540,17 @@ export default function ThreeDPage() {
               </svg>
               <span className="hidden sm:inline">{lightsOn ? 'Yoqilgan' : "O'chirilgan"}</span>
             </button>
+            {/* AI builder button */}
+            <button
+              onClick={() => setShowAiSheet(true)}
+              title="AI bilan qurish"
+              className="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-purple-600 text-white hover:bg-purple-700 transition-colors shrink-0"
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 2a2 2 0 0 1 2 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 0 1 7 7h1a1 1 0 0 1 0 2h-1v1a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-1H2a1 1 0 0 1 0-2h1a7 7 0 0 1 7-7h1V5.73c-.6-.34-1-.99-1-1.73a2 2 0 0 1 2-2z"/>
+              </svg>
+              <span className="hidden sm:inline">AI</span>
+            </button>
             {/* Mobile: design panel toggle */}
             <button
               onClick={() => setShowPanel(v => !v)}
@@ -2702,6 +2715,7 @@ export default function ThreeDPage() {
       </div>
 
       {showAddSheet && <AddObjectSheet onClose={() => setShowAddSheet(false)} initialSection={addSheetSection} />}
+      <AiBuilderSheet open={showAiSheet} onOpenChange={setShowAiSheet} roomId={room.id} />
     </div>
   );
 }
