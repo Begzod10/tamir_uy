@@ -84,11 +84,20 @@ export interface WallPanelSettings {
   color: string    // hex
 }
 
+export interface FloorTextureSettings {
+  repeatX: number
+  repeatY: number
+  offsetX: number
+  offsetY: number
+  rotation: number
+}
+
 export interface DesignState {
   wallCoverings: { ALL: WallCovering } & Partial<Record<string, WallCovering>>
   floorType: FloorType
   wallPanels?: Partial<Record<string, WallPanelSettings>>
   floorTexture?: string | null
+  floorTextureSettings?: FloorTextureSettings
 }
 
 /** Resolve the effective WallCovering for a given wall (falls back to ALL). */

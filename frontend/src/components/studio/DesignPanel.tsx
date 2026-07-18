@@ -187,7 +187,15 @@ export function DesignPanel({ room, phase, selectedWall, onWallChange }: {
   function handleSetFloorType(type: string) {
     const ft = type as FloorType;
     setDesignState({ floorType: ft });
-    syncToApi({ ...designState, floorType: ft });
+    setFloorTexture(null);
+    syncToApi({ ...designState, floorType: ft, floorTexture: null });
+  }
+
+  const DEFAULT_FLOOR_TEX_SETTINGS = { repeatX: 1, repeatY: 1, offsetX: 0, offsetY: 0, rotation: 0 };
+
+  function updateFloorTexSettings(patch: Partial<{ repeatX: number; repeatY: number; offsetX: number; offsetY: number; rotation: number }>) {
+    const current = designState.floorTextureSettings ?? DEFAULT_FLOOR_TEX_SETTINGS;
+    setDesignState({ floorTextureSettings: { ...current, ...patch } });
   }
 
   function handleFloorTextureUpload(e: React.ChangeEvent<HTMLInputElement>) {
@@ -221,8 +229,12 @@ export function DesignPanel({ room, phase, selectedWall, onWallChange }: {
   function handleTextureUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
-    const url = URL.createObjectURL(file);
-    applyWallCovering({ kind: 'texture', url, color: '#ffffff', repeatX: 0.5, repeatY: 1.0, offsetX: 0, offsetY: 0, rotation: 0 });
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const url = ev.target?.result as string;
+      if (url) applyWallCovering({ kind: 'texture', url, color: '#ffffff', repeatX: 0.5, repeatY: 1.0, offsetX: 0, offsetY: 0, rotation: 0 });
+    };
+    reader.readAsDataURL(file);
     e.target.value = '';
   }
 
@@ -369,20 +381,87 @@ export function DesignPanel({ room, phase, selectedWall, onWallChange }: {
                 <span className="text-sm font-medium">Rasm yuklash</span>
                 <span className="text-xs text-gray-400">JPG, PNG, WEBP</span>
               </button>
-              {designState.floorTexture && (
-                <div className="flex items-center gap-3 p-2 bg-gray-50 rounded-lg border border-gray-200">
-                  <img src={designState.floorTexture} alt="Pol teksturasi" className="w-14 h-14 object-cover rounded-md border border-gray-200 shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-medium text-gray-700 truncate">Yuklangan rasm</p>
-                    <button
-                      onClick={() => setFloorTexture(null)}
-                      className="text-xs text-red-400 hover:text-red-600 mt-0.5"
-                    >
-                      O'chirish
-                    </button>
-                  </div>
-                </div>
-              )}
+              {designState.floorTexture && (() => {
+                const fs = designState.floorTextureSettings ?? DEFAULT_FLOOR_TEX_SETTINGS;
+                return (
+                  <>
+                    <div className="flex items-center gap-3 p-2 bg-gray-50 rounded-lg border border-gray-200">
+                      <img src={designState.floorTexture} alt="Pol teksturasi" className="w-14 h-14 object-cover rounded-md border border-gray-200 shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-medium text-gray-700 truncate">Yuklangan rasm</p>
+                        <button
+                          onClick={() => setFloorTexture(null)}
+                          className="text-xs text-red-400 hover:text-red-600 mt-0.5"
+                        >
+                          O'chirish
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* UVW controls */}
+                    <div className="space-y-2.5 p-3 bg-gray-50 rounded-xl border border-gray-100">
+                      <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Tekstura sozlamalari</p>
+
+                      <div className="space-y-1">
+                        <div className="flex justify-between items-center">
+                          <label className="text-xs text-gray-600 font-medium">Masshtab X</label>
+                          <span className="text-xs text-gray-400 tabular-nums">{(1 / fs.repeatX).toFixed(2)} m</span>
+                        </div>
+                        <input type="range" min="0.1" max="5" step="0.05" value={fs.repeatX}
+                          onChange={(e) => updateFloorTexSettings({ repeatX: parseFloat(e.target.value) })}
+                          className="w-full accent-brand h-1.5" />
+                      </div>
+
+                      <div className="space-y-1">
+                        <div className="flex justify-between items-center">
+                          <label className="text-xs text-gray-600 font-medium">Masshtab Y</label>
+                          <span className="text-xs text-gray-400 tabular-nums">{(1 / fs.repeatY).toFixed(2)} m</span>
+                        </div>
+                        <input type="range" min="0.1" max="5" step="0.05" value={fs.repeatY}
+                          onChange={(e) => updateFloorTexSettings({ repeatY: parseFloat(e.target.value) })}
+                          className="w-full accent-brand h-1.5" />
+                      </div>
+
+                      <div className="space-y-1">
+                        <div className="flex justify-between items-center">
+                          <label className="text-xs text-gray-600 font-medium">Burish</label>
+                          <span className="text-xs text-gray-400 tabular-nums">{Math.round(fs.rotation * 180 / Math.PI)}°</span>
+                        </div>
+                        <input type="range" min="0" max={Math.PI * 2} step={Math.PI / 36} value={fs.rotation}
+                          onChange={(e) => updateFloorTexSettings({ rotation: parseFloat(e.target.value) })}
+                          className="w-full accent-brand h-1.5" />
+                      </div>
+
+                      <div className="space-y-1">
+                        <div className="flex justify-between items-center">
+                          <label className="text-xs text-gray-600 font-medium">Siljish X</label>
+                          <span className="text-xs text-gray-400 tabular-nums">{fs.offsetX.toFixed(2)}</span>
+                        </div>
+                        <input type="range" min="0" max="1" step="0.01" value={fs.offsetX}
+                          onChange={(e) => updateFloorTexSettings({ offsetX: parseFloat(e.target.value) })}
+                          className="w-full accent-brand h-1.5" />
+                      </div>
+
+                      <div className="space-y-1">
+                        <div className="flex justify-between items-center">
+                          <label className="text-xs text-gray-600 font-medium">Siljish Y</label>
+                          <span className="text-xs text-gray-400 tabular-nums">{fs.offsetY.toFixed(2)}</span>
+                        </div>
+                        <input type="range" min="0" max="1" step="0.01" value={fs.offsetY}
+                          onChange={(e) => updateFloorTexSettings({ offsetY: parseFloat(e.target.value) })}
+                          className="w-full accent-brand h-1.5" />
+                      </div>
+
+                      <button
+                        onClick={() => setDesignState({ floorTextureSettings: DEFAULT_FLOOR_TEX_SETTINGS })}
+                        className="text-xs text-gray-400 hover:text-gray-600 transition-colors"
+                      >
+                        Standartga qaytarish
+                      </button>
+                    </div>
+                  </>
+                );
+              })()}
             </section>
           )}
         </>

@@ -75,10 +75,11 @@ const FLOOR_COLORS: Record<string, string> = {
 };
 
 function WoodFloor({
-  width, depth, floorType, floorTexture, isSelected, onClick,
+  width, depth, floorType, floorTexture, floorTextureSettings, isSelected, onClick,
 }: {
   width: number; depth: number; floorType: string;
   floorTexture?: string | null;
+  floorTextureSettings?: { repeatX: number; repeatY: number; offsetX: number; offsetY: number; rotation: number } | null;
   isSelected?: boolean;
   onClick?: () => void;
 }) {
@@ -89,16 +90,31 @@ function WoodFloor({
   const [customTex, setCustomTex] = useState<THREE.Texture | null>(null);
   useEffect(() => {
     if (!floorTexture) { setCustomTex(null); return; }
-    const loader = new THREE.TextureLoader();
-    loader.load(floorTexture, (tex) => {
+    let disposed = false;
+    new THREE.TextureLoader().load(floorTexture, (tex) => {
+      if (disposed) { tex.dispose(); return; }
       tex.wrapS = THREE.RepeatWrapping;
       tex.wrapT = THREE.RepeatWrapping;
-      tex.repeat.set(width / 1.0, depth / 1.0);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      tex.center.set(0.5, 0.5);
       setCustomTex(tex);
       invalidate();
     });
+    return () => { disposed = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [floorTexture, width, depth]);
+  }, [floorTexture]);
+
+  // Apply UV settings whenever they or room dimensions change
+  useEffect(() => {
+    if (!customTex) return;
+    const rx = floorTextureSettings?.repeatX ?? 1;
+    const ry = floorTextureSettings?.repeatY ?? 1;
+    customTex.repeat.set(width * rx, depth * ry);
+    customTex.offset.set(floorTextureSettings?.offsetX ?? 0, floorTextureSettings?.offsetY ?? 0);
+    customTex.rotation = floorTextureSettings?.rotation ?? 0;
+    customTex.needsUpdate = true;
+    invalidate();
+  }, [customTex, width, depth, floorTextureSettings, invalidate]);
 
   const texture = useMemo<THREE.CanvasTexture>(() => {
     const canvas = document.createElement("canvas");
@@ -381,6 +397,9 @@ function WallPanelGrid({
   cz,
   settings,
   elements,
+  covering,
+  imageTexture,
+  texAspect,
 }: {
   wallLengthM: number;
   wallHeightM: number;
@@ -389,8 +408,28 @@ function WallPanelGrid({
   cx: number;
   cz: number;
   settings: WallPanelSettings;
+  covering?: WallCovering;
+  imageTexture?: THREE.Texture | null;
+  texAspect?: number;
   elements: ResolvedEl[];
 }) {
+  const pw = (settings.rotation === 90 ? settings.height : settings.width) / 1000;
+  const ph = (settings.rotation === 90 ? settings.width : settings.height) / 1000;
+
+  // Cloned texture scaled to a single panel's physical size
+  const panelTex = useMemo(() => {
+    if (covering?.kind !== 'texture' || !imageTexture) return null;
+    const s = covering.repeatX;
+    const t = imageTexture.clone();
+    t.colorSpace = imageTexture.colorSpace;
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.repeat.set(pw * s, ph * s * (texAspect ?? 1) * covering.repeatY);
+    t.rotation = covering.rotation;
+    t.center.set(0.5, 0.5);
+    t.needsUpdate = true;
+    return t;
+  }, [covering, imageTexture, texAspect, pw, ph]);
+
   const panels = useMemo(() => {
     const pw = (settings.rotation === 90 ? settings.height : settings.width) / 1000;
     const ph = (settings.rotation === 90 ? settings.width : settings.height) / 1000;
@@ -509,17 +548,20 @@ function WallPanelGrid({
         const bd = axis === 'X' ? p.pd : p.aw;
         const maxR = Math.min(bw, p.ah, bd) / 2 - 0.0005;
         const radius = chamferMm > 0 ? Math.min(chamferMm / 1000, maxR) : 0;
+        const matProps = panelTex
+          ? { map: panelTex, color: '#ffffff', roughness: 0.65, metalness: 0 }
+          : { color: settings.color, roughness: 0.45, metalness: 0.05 };
         if (radius > 0.0004) {
           return (
             <RoundedBox key={i} position={[p.x, p.y, p.z]} args={[bw, p.ah, bd]} radius={radius} smoothness={3} castShadow receiveShadow>
-              <meshStandardMaterial color={settings.color} roughness={0.45} metalness={0.05} />
+              <meshStandardMaterial {...matProps} />
             </RoundedBox>
           );
         }
         return (
           <mesh key={i} position={[p.x, p.y, p.z]} castShadow receiveShadow>
             <boxGeometry args={[bw, p.ah, bd]} />
-            <meshStandardMaterial color={settings.color} roughness={0.45} metalness={0.05} />
+            <meshStandardMaterial {...matProps} />
           </mesh>
         );
       })}
@@ -545,18 +587,26 @@ function Wall({ length, height, thickness, covering, elements, axis, cx, cz, isS
   useEffect(() => {
     if (!textureUrl) { setImageTexture(null); setTexAspect(1); return; }
     let disposed = false;
-    new THREE.TextureLoader().load(textureUrl, (t) => {
-      if (disposed) { t.dispose(); return; }
-      t.colorSpace = THREE.SRGBColorSpace;
-      t.wrapS = t.wrapT = THREE.RepeatWrapping;
-      t.needsUpdate = true;
-      const img = t.image as HTMLImageElement;
-      const w = img.naturalWidth || img.width || 1;
-      const h = img.naturalHeight || img.height || 1;
-      if (!disposed) { setTexAspect(w / h); setImageTexture(t); invalidate(); }
-    });
+    new THREE.TextureLoader().load(
+      textureUrl,
+      (t) => {
+        if (disposed) { t.dispose(); return; }
+        t.colorSpace = THREE.SRGBColorSpace;
+        t.wrapS = t.wrapT = THREE.RepeatWrapping;
+        t.needsUpdate = true;
+        const img = t.image as HTMLImageElement;
+        const w = img.naturalWidth || img.width || 1;
+        const h = img.naturalHeight || img.height || 1;
+        if (!disposed) { setTexAspect(w / h); setImageTexture(t); }
+      },
+      undefined,
+      () => { /* ignore load errors */ },
+    );
     return () => { disposed = true; };
-  }, [textureUrl, invalidate]);
+  }, [textureUrl]);
+
+  // Trigger a render AFTER React commits the imageTexture state (demand frameloop).
+  useEffect(() => { invalidate(); }, [imageTexture, invalidate]);
 
 
   const resolvedElements = useMemo(
@@ -687,6 +737,9 @@ function Wall({ length, height, thickness, covering, elements, axis, cx, cz, isS
           cz={cz}
           settings={panelSettings}
           elements={resolvedElements}
+          covering={covering}
+          imageTexture={imageTexture}
+          texAspect={texAspect}
         />
       )}
     </group>
@@ -2208,6 +2261,7 @@ export function RoomScene({
           <WoodFloor
             width={W} depth={D} floorType={designState.floorType}
             floorTexture={designState.floorTexture}
+            floorTextureSettings={designState.floorTextureSettings}
             isSelected={isFloorSelected}
             onClick={onFloorClick}
           />
