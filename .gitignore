@@ -28,6 +28,7 @@ backend/.venv/
 
 # ── Alembic ───────────────────────────────────────────────────────────────────
 alembic/versions/*.pyc
+alembic/versions/
 
 # ── Database / media ──────────────────────────────────────────────────────────
 *.db
@@ -55,6 +56,5 @@ Thumbs.db
 
 # ── Misc ──────────────────────────────────────────────────────────────────────
 .git
-alembic.ini
 structure
 test_main.http
