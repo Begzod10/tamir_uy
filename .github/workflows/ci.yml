@@ -34,6 +34,10 @@ jobs:
       SECRET_KEY: test-secret-key-for-ci-only-32chars!!
       ENVIRONMENT: development
       SMS_PROVIDER: eskiz
+      AI_FEATURES_ENABLED: false
+      ACCESS_TOKEN_EXPIRE_MINUTES: 30
+      REFRESH_TOKEN_EXPIRE_DAYS: 30
+      CORS_ORIGINS_STR: http://localhost:3000,http://localhost:5173
 
     steps:
       - uses: actions/checkout@v4
@@ -61,12 +65,12 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "24"
           cache: "npm"
           cache-dependency-path: frontend/package-lock.json
 
       - name: Install Node dependencies
-        run: cd frontend && npm ci
+        run: cd frontend && npm ci --legacy-peer-deps
 
       - name: TypeScript type-check
         run: cd frontend && npx tsc --noEmit
