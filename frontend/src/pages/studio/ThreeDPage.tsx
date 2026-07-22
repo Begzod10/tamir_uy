@@ -2923,7 +2923,7 @@ export default function ThreeDPage() {
           'fixed bottom-0 left-0 right-0 z-50 max-h-[72vh] rounded-t-2xl shadow-2xl transition-transform duration-300 ease-in-out',
           showPanel ? 'translate-y-0' : 'translate-y-full',
           /* desktop override */
-          'lg:static lg:translate-y-0 lg:max-h-none lg:rounded-none lg:shadow-none lg:z-auto',
+          'lg:static lg:translate-y-0 lg:max-h-none lg:h-full lg:rounded-none lg:shadow-none lg:z-auto',
         ].join(' ')}
       >
         {/* Mobile drag handle */}

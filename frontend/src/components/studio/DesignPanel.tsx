@@ -1049,7 +1049,7 @@ export function DesignPanel({ room, phase, selectedWall, onWallChange }: {
   )
 
   return (
-    <aside className="w-full lg:w-72 lg:shrink-0 bg-surface border-l border-gray-200 overflow-y-auto" style={{ maxHeight: 'inherit' }}>
+    <aside className="w-full lg:w-72 lg:shrink-0 bg-surface border-l border-gray-200 overflow-y-auto lg:h-full">
       <div className="p-4 space-y-5">
 
         {phase === 'boyoq' && WallSection}
