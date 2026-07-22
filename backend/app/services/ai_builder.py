@@ -155,6 +155,7 @@ class RoomDraft:
     ceiling_h: float | None = None
     wall_lengths: dict[str, float] = field(default_factory=dict)
     surfaces: dict[str, str] = field(default_factory=dict)
+    material_colors: dict[str, str] = field(default_factory=dict)  # surface_id -> color_hex
     furniture: list[dict] = field(default_factory=list)
 
     def to_patch(self) -> dict[str, Any]:
@@ -165,6 +166,8 @@ class RoomDraft:
             patch["wall_lengths"] = self.wall_lengths
         if self.surfaces:
             patch["surfaces"] = self.surfaces
+        if self.material_colors:
+            patch["material_colors"] = self.material_colors
         if self.furniture:
             patch["furniture"] = self.furniture
         return patch
@@ -271,8 +274,16 @@ async def run_ai_builder(
                     f"Xato: '{material_id}' — bu material bazada mavjud emas. "
                     "list_materials tooldan haqiqiy ID oling."
                 ), False
+            # Get material color from the catalog
+            material_color = "#FFFFFF"  # default white
+            for mats in materials_by_category.values():
+                for m in mats:
+                    if str(m.get("id")) == material_id:
+                        material_color = m.get("color_hex", "#FFFFFF")
+                        break
             for sid in surface_ids:
                 draft.surfaces[str(sid)] = material_id
+                draft.material_colors[str(sid)] = material_color
             return f"OK: {len(surface_ids)} ta yuzga material qo'llandi.", True
 
         if name == "place_furniture":

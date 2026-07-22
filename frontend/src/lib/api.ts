@@ -556,6 +556,7 @@ export interface AiRoomPatch {
   ceiling_h?: number;
   wall_lengths?: Record<string, number>;
   surfaces?: Record<string, string>;
+  material_colors?: Record<string, string>;
   furniture?: Array<{
     id: string;
     furniture_id: string;
