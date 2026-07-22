@@ -23,8 +23,8 @@ from app.core.cache import get_redis
 
 log = structlog.get_logger(__name__)
 
-BUILDER_DAILY_LIMIT: int = 5
-EXPLAINER_DAILY_LIMIT: int = 50
+BUILDER_DAILY_LIMIT: int = 100
+EXPLAINER_DAILY_LIMIT: int = 500
 
 _OVER_LIMIT_UZ = (
     "Bugun AI so'rovlar limiti tugadi. Ertaga qayta urinib ko'ring."
