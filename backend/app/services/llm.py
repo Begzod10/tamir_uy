@@ -138,29 +138,22 @@ def _to_openai_messages(messages: list[dict]) -> list[dict]:
             else:
                 # Handle tool results and text
                 import json
-                text_content = None
-                tool_results = []
+                text_parts = []
 
                 for item in content:
                     if isinstance(item, dict):
                         if item.get("type") == "tool_result":
-                            tool_results.append({
-                                "type": "tool_result",
-                                "tool_use_id": item.get("tool_use_id"),
-                                "content": item.get("content", "")
-                            })
+                            # Convert tool result to text format for OpenAI
+                            tool_id = item.get("tool_use_id", "unknown")
+                            result_text = item.get("content", "")
+                            text_parts.append(f"[Tool result for {tool_id}]: {result_text}")
                         elif item.get("type") == "text":
-                            text_content = item.get("text", "")
+                            text_parts.append(item.get("text", ""))
 
-                msg = {"role": "user"}
-                if text_content:
-                    msg["content"] = text_content
-                elif tool_results:
-                    msg["content"] = tool_results
+                if text_parts:
+                    openai_messages.append({"role": "user", "content": "\n".join(text_parts)})
                 else:
-                    msg["content"] = ""
-
-                openai_messages.append(msg)
+                    openai_messages.append({"role": "user", "content": ""})
 
         elif role == "assistant":
             if isinstance(content, str):
