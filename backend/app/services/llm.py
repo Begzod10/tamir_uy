@@ -136,51 +136,64 @@ def _to_openai_messages(messages: list[dict]) -> list[dict]:
             if isinstance(content, str):
                 openai_messages.append({"role": "user", "content": content})
             else:
-                # Handle tool results
-                content_parts = []
+                # Handle tool results and text
+                import json
+                text_content = None
+                tool_results = []
+
                 for item in content:
                     if isinstance(item, dict):
                         if item.get("type") == "tool_result":
-                            content_parts.append({
+                            tool_results.append({
                                 "type": "tool_result",
                                 "tool_use_id": item.get("tool_use_id"),
                                 "content": item.get("content", "")
                             })
                         elif item.get("type") == "text":
-                            content_parts.append({
-                                "type": "text",
-                                "text": item.get("text", "")
-                            })
-                if content_parts:
-                    openai_messages.append({"role": "user", "content": content_parts})
+                            text_content = item.get("text", "")
+
+                msg = {"role": "user"}
+                if text_content:
+                    msg["content"] = text_content
+                elif tool_results:
+                    msg["content"] = tool_results
+                else:
+                    msg["content"] = ""
+
+                openai_messages.append(msg)
 
         elif role == "assistant":
             if isinstance(content, str):
                 openai_messages.append({"role": "assistant", "content": content})
             else:
-                # Handle tool calls
-                content_parts = []
+                # Handle tool calls and text
+                import json
+                text_content = None
+                tool_calls = []
+
                 for block in content:
                     if hasattr(block, "type"):
                         if block.type == "text":
-                            content_parts.append({
-                                "type": "text",
-                                "text": block.text
-                            })
+                            text_content = block.text
                         elif block.type == "tool_use":
-                            content_parts.append({
-                                "type": "tool_calls",
-                                "tool_calls": [{
-                                    "id": block.id,
-                                    "type": "function",
-                                    "function": {
-                                        "name": block.name,
-                                        "arguments": block.input
-                                    }
-                                }]
+                            tool_calls.append({
+                                "id": block.id,
+                                "type": "function",
+                                "function": {
+                                    "name": block.name,
+                                    "arguments": json.dumps(block.input) if isinstance(block.input, dict) else block.input
+                                }
                             })
-                if content_parts:
-                    openai_messages.append({"role": "assistant", "content": content_parts})
+
+                msg = {"role": "assistant"}
+                if text_content:
+                    msg["content"] = text_content
+                else:
+                    msg["content"] = None
+                if tool_calls:
+                    msg["tool_calls"] = tool_calls
+
+                openai_messages.append(msg)
 
     return openai_messages
 
