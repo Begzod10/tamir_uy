@@ -384,13 +384,12 @@ async def run_ai_builder(
                 "ok": ok,
                 "result": result_text[:500],
             })
-            tool_results.append({
-                "type": "tool_result",
-                "tool_use_id": block.id,
+            # For OpenAI: append tool result as separate message
+            messages.append({
+                "role": "tool",
+                "tool_call_id": block.id,
                 "content": result_text,
             })
-
-        messages.append({"role": "user", "content": tool_results})
 
     # Tool call cap reached
     yield _sse({

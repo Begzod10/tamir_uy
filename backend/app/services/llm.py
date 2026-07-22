@@ -130,7 +130,16 @@ def _to_openai_messages(messages: list[dict]) -> list[dict]:
 
     for msg in messages:
         role = msg["role"]
-        content = msg["content"]
+        content = msg.get("content", "")
+
+        # Handle tool role messages (already in OpenAI format)
+        if role == "tool":
+            openai_messages.append({
+                "role": "tool",
+                "tool_call_id": msg.get("tool_call_id", ""),
+                "content": content
+            })
+            continue
 
         if role == "user":
             if isinstance(content, str):
