@@ -1,19 +1,11 @@
-"""Shared async LLM service layer (Google Gemini backend).
+"""Shared async LLM service layer (OpenAI backend).
 
 All LLM calls go through `call_llm()`.  The budget guard enforces per-user
 daily call limits stored in Redis.  When the limit is exceeded it raises
 `BudgetExceededError` whose message is Uzbek so it can be shown directly to
 the user.
 
-This module talks to the **Gemini API** (google-genai SDK) but exposes an
-Anthropic-compatible response shape (`.content` blocks with `.type` / `.text`
-/ `.name` / `.input` / `.id`, plus `.usage`).  That lets the agentic
-room-builder loop and the smeta explainer keep using the same block-handling
-code they were written against — all provider translation is contained here.
-
-Limits (configurable via module constants):
-  - builder  : BUILDER_DAILY_LIMIT  calls / user / day
-  - explainer: EXPLAINER_DAILY_LIMIT calls / user / day
+This module talks to the **OpenAI API** (openai SDK).
 """
 from __future__ import annotations
 
@@ -24,9 +16,7 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 
 import structlog
-from google import genai
-from google.genai import errors as genai_errors
-from google.genai import types
+from openai import AsyncOpenAI, APIError
 
 from app.config import settings
 from app.core.cache import get_redis
@@ -51,18 +41,11 @@ class BudgetExceededError(Exception):
 # ---------------------------------------------------------------------------
 # Anthropic-compatible response shim
 # ---------------------------------------------------------------------------
-# The room-builder loop and smeta handler expect a response object whose
-# `.content` is a list of blocks, each with a `.type` of "text" or "tool_use".
-# We reproduce exactly that surface on top of Gemini's response.
-
 
 @dataclass
 class TextBlock:
     text: str
     type: str = "text"
-    # Gemini 3 thinking models attach a signature to parts; it must be echoed
-    # back verbatim when the turn is replayed in history.
-    thought_signature: Optional[bytes] = None
 
 
 @dataclass
@@ -71,8 +54,6 @@ class ToolUseBlock:
     input: dict
     id: str = field(default_factory=lambda: "call_" + uuid.uuid4().hex[:12])
     type: str = "tool_use"
-    # Required by Gemini 3 when this function_call is replayed in history.
-    thought_signature: Optional[bytes] = None
 
 
 @dataclass
@@ -111,174 +92,129 @@ async def check_and_increment_budget(user_id: str, model_type: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Gemini client
+# OpenAI client
 # ---------------------------------------------------------------------------
 
-_client: Optional[genai.Client] = None
+_client: Optional[AsyncOpenAI] = None
 
 
-def get_client() -> genai.Client:
+def get_client() -> AsyncOpenAI:
     global _client
     if _client is None:
-        _client = genai.Client(api_key=settings.GEMINI_API_KEY)
+        _client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
     return _client
 
 
 # ---------------------------------------------------------------------------
-# Format translation: Anthropic-style <-> Gemini
+# Format translation: Anthropic-style <-> OpenAI
 # ---------------------------------------------------------------------------
 
-_TYPE_MAP = {
-    "object": "OBJECT",
-    "string": "STRING",
-    "number": "NUMBER",
-    "integer": "INTEGER",
-    "boolean": "BOOLEAN",
-    "array": "ARRAY",
-}
+def _to_openai_tools(tools: list[dict]) -> list[dict]:
+    """Convert Anthropic-style tools to OpenAI format."""
+    openai_tools = []
+    for tool in tools:
+        openai_tools.append({
+            "type": "function",
+            "function": {
+                "name": tool["name"],
+                "description": tool.get("description", ""),
+                "parameters": tool.get("input_schema", {"type": "object", "properties": {}})
+            }
+        })
+    return openai_tools
 
 
-def _to_gemini_schema(js: Optional[dict]) -> Optional[types.Schema]:
-    """Convert a JSON-schema dict (Anthropic input_schema) to a Gemini Schema.
+def _to_openai_messages(messages: list[dict]) -> list[dict]:
+    """Convert Anthropic-style messages to OpenAI format."""
+    openai_messages = []
 
-    Returns None for an object with no properties (a no-argument tool), so the
-    caller can omit `parameters` entirely — Gemini rejects empty OBJECT schemas.
-    """
-    if not js:
-        return None
-    t = _TYPE_MAP.get(js.get("type", "object"), "OBJECT")
-
-    if t == "OBJECT":
-        props = js.get("properties") or {}
-        if not props:
-            return None
-        kw: dict[str, Any] = {
-            "type": "OBJECT",
-            "properties": {k: _to_gemini_schema(v) for k, v in props.items()},
-        }
-        if js.get("required"):
-            kw["required"] = list(js["required"])
-        if js.get("description"):
-            kw["description"] = js["description"]
-        return types.Schema(**kw)
-
-    kw = {"type": t}
-    if js.get("description"):
-        kw["description"] = js["description"]
-    if js.get("enum"):
-        kw["enum"] = list(js["enum"])
-    if t == "ARRAY" and js.get("items"):
-        kw["items"] = _to_gemini_schema(js["items"])
-    return types.Schema(**kw)
-
-
-def _to_gemini_tools(tools: list[dict]) -> list[types.Tool]:
-    decls: list[types.FunctionDeclaration] = []
-    for t in tools:
-        params = _to_gemini_schema(t.get("input_schema"))
-        decls.append(
-            types.FunctionDeclaration(
-                name=t["name"],
-                description=t.get("description", ""),
-                parameters=params,
-            )
-        )
-    return [types.Tool(function_declarations=decls)]
-
-
-def _to_gemini_contents(messages: list[dict]) -> list[types.Content]:
-    """Convert Anthropic-style message history to Gemini `contents`.
-
-    Anthropic tool results reference the tool_use *id*; Gemini function
-    responses need the function *name*, so we first map id -> name from the
-    assistant tool_use blocks that appear earlier in the conversation.
-    """
-    id_to_name: dict[str, str] = {}
-    for m in messages:
-        content = m.get("content")
-        if isinstance(content, list):
-            for b in content:
-                if getattr(b, "type", None) == "tool_use":
-                    id_to_name[b.id] = b.name
-
-    contents: list[types.Content] = []
-    for m in messages:
-        role = m["role"]
-        content = m["content"]
+    for msg in messages:
+        role = msg["role"]
+        content = msg["content"]
 
         if role == "user":
             if isinstance(content, str):
-                contents.append(
-                    types.Content(role="user", parts=[types.Part(text=content)])
-                )
-                continue
-            # list of tool_result / text dicts
-            parts: list[types.Part] = []
-            for item in content:
-                if isinstance(item, dict) and item.get("type") == "tool_result":
-                    name = id_to_name.get(item.get("tool_use_id", ""), "tool")
-                    parts.append(
-                        types.Part.from_function_response(
-                            name=name,
-                            response={"result": item.get("content", "")},
-                        )
-                    )
-                elif isinstance(item, dict) and item.get("type") == "text":
-                    parts.append(types.Part(text=item.get("text", "")))
-            if parts:
-                contents.append(types.Content(role="user", parts=parts))
+                openai_messages.append({"role": "user", "content": content})
+            else:
+                # Handle tool results
+                content_parts = []
+                for item in content:
+                    if isinstance(item, dict):
+                        if item.get("type") == "tool_result":
+                            content_parts.append({
+                                "type": "tool_result",
+                                "tool_use_id": item.get("tool_use_id"),
+                                "content": item.get("content", "")
+                            })
+                        elif item.get("type") == "text":
+                            content_parts.append({
+                                "type": "text",
+                                "text": item.get("text", "")
+                            })
+                if content_parts:
+                    openai_messages.append({"role": "user", "content": content_parts})
 
         elif role == "assistant":
-            parts = []
             if isinstance(content, str):
-                parts.append(types.Part(text=content))
+                openai_messages.append({"role": "assistant", "content": content})
             else:
-                for b in content:
-                    bt = getattr(b, "type", None)
-                    if bt == "text":
-                        parts.append(
-                            types.Part(
-                                text=b.text,
-                                thought_signature=getattr(b, "thought_signature", None),
-                            )
-                        )
-                    elif bt == "tool_use":
-                        parts.append(
-                            types.Part(
-                                function_call=types.FunctionCall(
-                                    name=b.name, args=b.input or {}
-                                ),
-                                thought_signature=getattr(b, "thought_signature", None),
-                            )
-                        )
-            if parts:
-                contents.append(types.Content(role="model", parts=parts))
+                # Handle tool calls
+                content_parts = []
+                for block in content:
+                    if hasattr(block, "type"):
+                        if block.type == "text":
+                            content_parts.append({
+                                "type": "text",
+                                "text": block.text
+                            })
+                        elif block.type == "tool_use":
+                            content_parts.append({
+                                "type": "tool_calls",
+                                "tool_calls": [{
+                                    "id": block.id,
+                                    "type": "function",
+                                    "function": {
+                                        "name": block.name,
+                                        "arguments": block.input
+                                    }
+                                }]
+                            })
+                if content_parts:
+                    openai_messages.append({"role": "assistant", "content": content_parts})
 
-    return contents
+    return openai_messages
 
 
-def _from_gemini_response(resp: Any) -> LLMMessage:
+def _from_openai_response(resp: Any) -> LLMMessage:
+    """Convert OpenAI response to Anthropic-compatible format."""
     blocks: list[Any] = []
-    candidates = getattr(resp, "candidates", None) or []
-    if candidates:
-        cand_content = getattr(candidates[0], "content", None)
-        parts = getattr(cand_content, "parts", None) or [] if cand_content else []
-        for p in parts:
-            sig = getattr(p, "thought_signature", None)
-            fc = getattr(p, "function_call", None)
-            if fc is not None:
-                args = dict(fc.args) if fc.args else {}
-                blocks.append(ToolUseBlock(name=fc.name, input=args, thought_signature=sig))
-                continue
-            text = getattr(p, "text", None)
-            if text:
-                blocks.append(TextBlock(text=text, thought_signature=sig))
 
-    um = getattr(resp, "usage_metadata", None)
+    choice = resp.choices[0] if resp.choices else None
+    if choice and choice.message:
+        # Handle text content
+        if choice.message.content:
+            blocks.append(TextBlock(text=choice.message.content))
+
+        # Handle tool calls
+        if choice.message.tool_calls:
+            for tool_call in choice.message.tool_calls:
+                if tool_call.type == "function":
+                    import json
+                    args = tool_call.function.arguments
+                    if isinstance(args, str):
+                        args = json.loads(args)
+                    blocks.append(ToolUseBlock(
+                        name=tool_call.function.name,
+                        input=args,
+                        id=tool_call.id
+                    ))
+
+    # Extract usage
     usage = Usage(
-        input_tokens=getattr(um, "prompt_token_count", 0) or 0,
-        output_tokens=getattr(um, "candidates_token_count", 0) or 0,
+        input_tokens=resp.usage.prompt_tokens if resp.usage else 0,
+        output_tokens=resp.usage.completion_tokens if resp.usage else 0,
     )
+
     return LLMMessage(content=blocks, usage=usage)
 
 
@@ -296,11 +232,11 @@ async def call_llm(
     user_id: Optional[str] = None,
     model_type: str = "explainer",
 ) -> LLMMessage:
-    """Call the Gemini API with exponential backoff (3 attempts).
+    """Call the OpenAI API with exponential backoff (3 attempts).
 
     Args:
-        model:      Gemini model ID (e.g. "gemini-2.5-pro").
-        system:     System prompt (sent as system_instruction).
+        model:      OpenAI model ID (e.g. "gpt-4-turbo").
+        system:     System prompt.
         messages:   Anthropic-style conversation messages.
         tools:      Optional Anthropic-style tool definitions for agentic loops.
         max_tokens: Maximum response tokens.
@@ -318,29 +254,28 @@ async def call_llm(
         await check_and_increment_budget(user_id, model_type)
 
     client = get_client()
-    contents = _to_gemini_contents(messages)
 
-    config_kwargs: dict[str, Any] = {
-        "system_instruction": system,
-        "max_output_tokens": max_tokens,
+    # Build message history
+    message_history = _to_openai_messages(messages)
+
+    # Add system message
+    if system:
+        message_history.insert(0, {"role": "system", "content": system})
+
+    kwargs: dict[str, Any] = {
+        "model": model,
+        "messages": message_history,
+        "max_tokens": max_tokens,
     }
+
     if tools:
-        config_kwargs["tools"] = _to_gemini_tools(tools)
-        # We handle tool execution ourselves; keep the SDK from trying to.
-        config_kwargs["automatic_function_calling"] = (
-            types.AutomaticFunctionCallingConfig(disable=True)
-        )
-    config = types.GenerateContentConfig(**config_kwargs)
+        kwargs["tools"] = _to_openai_tools(tools)
 
     last_exc: Optional[Exception] = None
     for attempt in range(3):
         try:
-            resp = await client.aio.models.generate_content(
-                model=model,
-                contents=contents,
-                config=config,
-            )
-            message = _from_gemini_response(resp)
+            resp = await client.chat.completions.create(**kwargs)
+            message = _from_openai_response(resp)
             log.info(
                 "llm.call_ok",
                 model=model,
@@ -350,8 +285,8 @@ async def call_llm(
                 model_type=model_type,
             )
             return message
-        except genai_errors.APIError as exc:
-            code = getattr(exc, "code", None)
+        except APIError as exc:
+            code = getattr(exc, "status_code", None)
             if code == 429 or (isinstance(code, int) and code >= 500):
                 last_exc = exc
                 log.warning(

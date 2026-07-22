@@ -72,10 +72,10 @@ class Settings(BaseSettings):
     # AI features
     # ------------------------------------------------------------------ #
     AI_FEATURES_ENABLED: bool = False
-    # Gemini (google-genai) — see app/services/llm.py
-    GEMINI_API_KEY: str = ""
-    AI_MODEL_BUILDER: str = "gemini-3.5-flash"
-    AI_MODEL_EXPLAINER: str = "gemini-flash-latest"
+    # OpenAI — see app/services/llm.py
+    OPENAI_API_KEY: str = ""
+    AI_MODEL_BUILDER: str = "gpt-4-turbo"
+    AI_MODEL_EXPLAINER: str = "gpt-4-mini"
 
     # ------------------------------------------------------------------ #
     # Application
