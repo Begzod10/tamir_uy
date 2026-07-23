@@ -2,7 +2,7 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 import { NavLink, Outlet, useParams, useNavigate, useLocation } from "react-router-dom";
 import RoomSettingsSheet from "@/components/studio/RoomSettingsSheet";
 import { useQuery } from "@tanstack/react-query";
-import { getRoom, getDraftRoom, createApartment, createRoom, updateRoom } from "@/lib/api";
+import { getRoom, getDraftRoom, createApartment, createRoom, updateRoom, deleteRoom } from "@/lib/api";
 import type { Room } from "@/lib/api";
 import { uz } from "@/locale/uz";
 import { cn } from "@/lib/utils";
@@ -47,6 +47,7 @@ export default function StudioPage() {
   const isDirty = useRoomStore((s) => s.isDirty);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   async function handleSave() {
     if (saveStatus === 'saving') return;
@@ -254,7 +255,7 @@ export default function StudioPage() {
             </p>
           </button>
           {/* Save + kebab */}
-          <div className="flex items-center gap-2 flex-shrink-0">
+          <div className="flex items-center gap-2 flex-shrink-0 relative">
             <button
               onClick={handleSave}
               disabled={saveStatus === 'saving' || (fetchStatus !== 'notfound' && !isDirty)}
@@ -269,11 +270,36 @@ export default function StudioPage() {
             >
               {saveStatus === 'saving' ? '…' : saveStatus === 'saved' ? '✓' : 'Saqlash'}
             </button>
-            <button className="w-10 h-10 rounded-full bg-[#F3F4F6] flex items-center justify-center">
-              <svg width="18" height="18" viewBox="0 0 18 18" fill="#6B7280">
-                <circle cx="9" cy="4" r="1.5"/><circle cx="9" cy="9" r="1.5"/><circle cx="9" cy="14" r="1.5"/>
-              </svg>
-            </button>
+            <div className="relative">
+              <button
+                onClick={() => setMenuOpen(!menuOpen)}
+                className="w-10 h-10 rounded-full bg-[#F3F4F6] flex items-center justify-center hover:bg-[#E5E7EB] transition-colors"
+              >
+                <svg width="18" height="18" viewBox="0 0 18 18" fill="#6B7280">
+                  <circle cx="9" cy="4" r="1.5"/><circle cx="9" cy="9" r="1.5"/><circle cx="9" cy="14" r="1.5"/>
+                </svg>
+              </button>
+              {menuOpen && (
+                <div className="absolute right-0 top-12 bg-white rounded-lg shadow-lg border border-gray-200 z-50 min-w-[160px]">
+                  <button
+                    onClick={async () => {
+                      if (window.confirm('O\'chirishligi rostlaysizmi? Bu harakatni qaytarib bo\'lib bo\'lmaydi.')) {
+                        try {
+                          await deleteRoom(room.id)
+                          navigate(`/apartments/${room.apartment_id}`)
+                        } catch (err) {
+                          alert('Xato: ' + (err instanceof Error ? err.message : 'Xato'))
+                        }
+                      }
+                      setMenuOpen(false)
+                    }}
+                    className="w-full text-left px-4 py-2.5 text-[13px] text-red-600 hover:bg-red-50 first:rounded-t-lg last:rounded-b-lg transition-colors font-medium"
+                  >
+                    O'chirish
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
         <StudioNav roomId={room.id} />

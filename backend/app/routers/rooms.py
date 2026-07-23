@@ -40,7 +40,7 @@ async def _get_owned_room(room_id: UUID, user_id: object, db: DbSession) -> Room
     result = await db.execute(
         select(Room)
         .join(Apartment, Room.apartment_id == Apartment.id)
-        .where(Room.id == room_id, Apartment.user_id == user_id)
+        .where(Room.id == room_id, Apartment.user_id == user_id, Room.deleted == False)
     )
     room = result.scalar_one_or_none()
     if room is None:
@@ -135,9 +135,10 @@ async def update_room(room_id: UUID, body: RoomUpdate, db: DbSession, current_us
     "/rooms/{room_id}",
     status_code=status.HTTP_204_NO_CONTENT,
     response_model=None,
-    summary="Delete a room",
+    summary="Delete a room (hard delete with deleted flag)",
 )
 async def delete_room(room_id: UUID, db: DbSession, current_user: CurrentUser) -> None:
     room = await _get_owned_room(room_id, current_user.id, db)
-    await db.delete(room)
+    room.deleted = True
+    await db.flush()
     logger.info("room_deleted", room_id=str(room_id))

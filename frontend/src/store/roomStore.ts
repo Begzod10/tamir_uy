@@ -562,21 +562,28 @@ export const useRoomStore = create<RoomStore>()(
       name: 'uytamir-room-draft',
       version: 3,
       partialize: (state) => ({
+        draftId: state.draftId,
         // Persist geometry with dimensions but CLEAR wall elements (doors/windows)
         // They should not carry over between rooms
         geometry: {
           ...state.geometry,
           walls: state.geometry.walls.map(w => ({ ...w, elements: [] })),
         },
-        // Don't persist: designState (loaded from backend), roomId, surfaces, furniture, etc.
-        // These should be fresh for each room
         ceilingHeight: state.ceilingHeight,
+        wizardStep: state.wizardStep,
+        name: state.name,
+        furniture: state.furniture,
+        electricals: state.electricals,
+        lights: state.lights,
         highQuality3d: state.highQuality3d,
+        // Persist metadata but clear modelPath (blob URLs don't survive refresh)
+        userFurniture: state.userFurniture.map((f) => ({ ...f, modelPath: '' })),
+        // Don't persist: designState (loaded from backend per-room), roomId, surfaces, etc.
       }),
       migrate(persisted: unknown, version: number) {
         if (version < 2) {
           const old = persisted as { designState?: { wallColor?: string; floorType?: string } }
-          const wallColor = old?.designState?.wallColor ?? '#F5F0E8'
+          const wallColor = old?.designState?.wallColor ?? '#D8D3C8'
           const floorType = (old?.designState?.floorType ?? 'parquet') as FloorType
           return {
             ...(old as object),
@@ -589,21 +596,6 @@ export const useRoomStore = create<RoomStore>()(
         // v2→v3: no-op (vertices is optional, AppliedSurfaces is backward-compatible)
         return persisted
       },
-      // Persist local state so HMR / refreshes don't lose unsaved work.
-      // DB draft is still written on every change as the reliable cross-device backup.
-      partialize: (state) => ({
-        draftId: state.draftId,
-        geometry: state.geometry,
-        ceilingHeight: state.ceilingHeight,
-        designState: state.designState,
-        wizardStep: state.wizardStep,
-        name: state.name,
-        furniture: state.furniture,
-        electricals: state.electricals,
-        lights: state.lights,
-        // Persist metadata but clear modelPath (blob URLs don't survive refresh)
-        userFurniture: state.userFurniture.map((f) => ({ ...f, modelPath: '' })),
-      }),
     },
   ),
 )

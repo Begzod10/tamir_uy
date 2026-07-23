@@ -41,7 +41,7 @@ async def create_lead(
         room_result = await db.execute(
             select(Room)
             .join(Apartment, Room.apartment_id == Apartment.id)
-            .where(Room.id == body.room_id, Apartment.user_id == current_user.id)
+            .where(Room.id == body.room_id, Apartment.user_id == current_user.id, Room.deleted == False)
         )
         if room_result.scalar_one_or_none() is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Room not found")

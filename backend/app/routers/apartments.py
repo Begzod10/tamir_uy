@@ -9,6 +9,7 @@ from sqlalchemy.orm import selectinload
 
 from app.api.v1.deps import CurrentUser, DbSession
 from app.models.apartment import Apartment
+from app.models.room import Room
 from app.schemas.apartment import ApartmentCreate, ApartmentOut, ApartmentWithRooms
 
 logger = structlog.get_logger(__name__)
@@ -25,7 +26,7 @@ async def list_apartments(db: DbSession, current_user: CurrentUser) -> list[Apar
     result = await db.execute(
         select(Apartment)
         .where(Apartment.user_id == current_user.id)
-        .options(selectinload(Apartment.rooms))
+        .options(selectinload(Apartment.rooms.and_(Room.deleted == False)))
         .order_by(Apartment.created_at.desc())
     )
     return [ApartmentWithRooms.model_validate(a) for a in result.scalars().all()]
@@ -59,7 +60,7 @@ async def get_apartment(apartment_id: UUID, db: DbSession, current_user: Current
     result = await db.execute(
         select(Apartment)
         .where(Apartment.id == apartment_id, Apartment.user_id == current_user.id)
-        .options(selectinload(Apartment.rooms))
+        .options(selectinload(Apartment.rooms.and_(Room.deleted == False)))
     )
     apartment = result.scalar_one_or_none()
     if apartment is None:

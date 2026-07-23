@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, Numeric, String, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, String, func, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -76,6 +76,13 @@ class Room(Base):
         server_default=func.now(),
         onupdate=func.now(),
         nullable=False,
+    )
+    deleted: Mapped[bool] = mapped_column(
+        Boolean,
+        server_default=text('false'),
+        nullable=False,
+        index=True,
+        comment="Soft delete flag",
     )
 
     # Relationships

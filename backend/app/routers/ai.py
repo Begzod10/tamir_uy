@@ -38,7 +38,7 @@ async def _get_owned_room(room_id: uuid.UUID, user_id: Any, db: DbSession) -> Ro
     result = await db.execute(
         select(Room)
         .join(Apartment, Room.apartment_id == Apartment.id)
-        .where(Room.id == room_id, Apartment.user_id == user_id)
+        .where(Room.id == room_id, Apartment.user_id == user_id, Room.deleted == False)
     )
     room = result.scalar_one_or_none()
     if room is None:

@@ -5,7 +5,7 @@ import { updateRoom, getMaterials, previewEstimate } from "@/lib/api";
 import type { Room, Material } from "@/lib/api";
 import { uz } from "@/locale/uz";
 import { useRoomStore, resolveWallColor, resolveWallPanel, DEFAULT_DESIGN_STATE } from "@/store/roomStore";
-import type { WallCovering, WallPanelSettings, FloorType, DesignState } from "@/store/roomStore";
+import type { WallCovering, WallPanelSettings, FloorType } from "@/store/roomStore";
 import { OBOY_PATTERNS, getOboySvgPattern } from "@/lib/oboyPatterns";
 import type { OboyPatternId } from "@/lib/oboyPatterns";
 import { computeOboyRolls } from "@/lib/oboySmeta";
@@ -1074,7 +1074,7 @@ export function DesignPanel({ room, phase, selectedWall, onWallChange }: {
           onClick={() => {
             if (confirm('Barcha dizayn o\'zgarishlari bekor qilinadi. Davom etasizmi?')) {
               resetDesignState()
-              mutation.mutate({ design_state: DEFAULT_DESIGN_STATE })
+              mutation.mutate({ design_state: { wallCoverings: DEFAULT_DESIGN_STATE.wallCoverings, floorType: DEFAULT_DESIGN_STATE.floorType } })
             }
           }}
           className="w-full mt-8 px-4 py-2.5 text-sm font-semibold text-red-600 border border-red-200 bg-red-50 rounded-lg hover:bg-red-100 active:bg-red-200 transition-colors"

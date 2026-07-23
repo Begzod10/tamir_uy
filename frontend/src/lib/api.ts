@@ -286,6 +286,12 @@ export async function updateRoom(
   });
 }
 
+export async function deleteRoom(roomId: string): Promise<void> {
+  return apiClient<void>(`/rooms/${roomId}`, {
+    method: "DELETE",
+  });
+}
+
 // ---------- Material types ----------
 
 export interface Material {
