@@ -210,7 +210,7 @@ const defaultGeometry = (): RoomGeometry => ({
 // ─── Store ────────────────────────────────────────────────────────────────────
 
 const DEFAULT_DESIGN_STATE: DesignState = {
-  wallCoverings: { ALL: { kind: 'paint', color: '#F5F0E8' } },
+  wallCoverings: { ALL: { kind: 'paint', color: '#D8D3C8' } },
   floorType: 'parquet',
   wallPanels: {
     ALL: {
