@@ -26,10 +26,15 @@ async def list_apartments(db: DbSession, current_user: CurrentUser) -> list[Apar
     result = await db.execute(
         select(Apartment)
         .where(Apartment.user_id == current_user.id)
-        .options(selectinload(Apartment.rooms.and_(Room.deleted == False)))
+        .options(selectinload(Apartment.rooms))
         .order_by(Apartment.created_at.desc())
     )
-    return [ApartmentWithRooms.model_validate(a) for a in result.scalars().all()]
+    apartments = result.scalars().all()
+    # Filter out deleted rooms from each apartment's rooms list
+    for apt in apartments:
+        if apt.rooms:
+            apt.rooms = [r for r in apt.rooms if not r.deleted]
+    return [ApartmentWithRooms.model_validate(a) for a in apartments]
 
 
 @router.post(
@@ -60,11 +65,14 @@ async def get_apartment(apartment_id: UUID, db: DbSession, current_user: Current
     result = await db.execute(
         select(Apartment)
         .where(Apartment.id == apartment_id, Apartment.user_id == current_user.id)
-        .options(selectinload(Apartment.rooms.and_(Room.deleted == False)))
+        .options(selectinload(Apartment.rooms))
     )
     apartment = result.scalar_one_or_none()
     if apartment is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Apartment not found")
+    # Filter out deleted rooms
+    if apartment.rooms:
+        apartment.rooms = [r for r in apartment.rooms if not r.deleted]
     return ApartmentWithRooms.model_validate(apartment)
 
 
