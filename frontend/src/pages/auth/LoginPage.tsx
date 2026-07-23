@@ -246,11 +246,8 @@ export default function LoginPage() {
     <div className="min-h-screen bg-paper flex flex-col items-center justify-center px-5">
       {/* Logo */}
       <div className="mb-8 text-center">
-        <div className="w-16 h-16 rounded-2xl bg-brand flex items-center justify-center text-3xl mx-auto mb-3">
-          🏠
-        </div>
-        <h1 className="text-2xl font-bold text-gray-900">UyVision</h1>
-        <p className="text-sm text-muted mt-1">Interior dizayn platformasi</p>
+        <img src="/logo.svg" alt="UyVision" className="w-48 mx-auto mb-4" />
+        <p className="text-sm text-muted">Interior dizayn platformasi</p>
       </div>
 
       <div className="w-full max-w-sm bg-surface rounded-2xl shadow-md p-6">

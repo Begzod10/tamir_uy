@@ -157,7 +157,7 @@ function DesktopSidebar({ onNew }: { onNew: () => void }) {
       {/* Logo */}
       <div className="px-5 pt-8 pb-6">
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-brand flex items-center justify-center text-lg flex-shrink-0">🏠</div>
+          <img src="/icon.svg" alt="UyVision" className="w-9 h-9 flex-shrink-0" />
           <span className="text-[17px] font-extrabold text-gray-900">UyVision</span>
         </div>
       </div>
