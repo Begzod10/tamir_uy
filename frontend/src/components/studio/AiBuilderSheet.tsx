@@ -4,6 +4,7 @@ import { uz } from "@/locale/uz"
 import { aiBuildStream } from "@/lib/api"
 import type { AiBuildEvent, AiRoomPatch } from "@/lib/api"
 import { useRoomStore } from "@/store/roomStore"
+import { Image3DConverter } from "./Image3DConverter"
 
 interface AiBuilderSheetProps {
   open: boolean
@@ -18,6 +19,7 @@ interface LogEntry {
 }
 
 export function AiBuilderSheet({ open, onOpenChange, roomId }: AiBuilderSheetProps) {
+  const [tab, setTab] = React.useState<"builder" | "image3d">("builder")
   const [prompt, setPrompt] = React.useState("")
   const [running, setRunning] = React.useState(false)
   const [log, setLog] = React.useState<LogEntry[]>([])
@@ -157,6 +159,33 @@ export function AiBuilderSheet({ open, onOpenChange, roomId }: AiBuilderSheetPro
       defaultSnap="full"
     >
       <div className="flex flex-col h-full pb-4 px-4 gap-3">
+        {/* Tab selector */}
+        <div className="flex gap-2 border-b border-gray-200">
+          <button
+            onClick={() => setTab("builder")}
+            className={`px-4 py-2 text-sm font-semibold transition-colors ${
+              tab === "builder"
+                ? "text-brand border-b-2 border-brand"
+                : "text-gray-600 hover:text-gray-900"
+            }`}
+          >
+            🤖 AI Builder
+          </button>
+          <button
+            onClick={() => setTab("image3d")}
+            className={`px-4 py-2 text-sm font-semibold transition-colors ${
+              tab === "image3d"
+                ? "text-brand border-b-2 border-brand"
+                : "text-gray-600 hover:text-gray-900"
+            }`}
+          >
+            📸 3D Generator
+          </button>
+        </div>
+
+        {/* AI Builder Tab */}
+        {tab === "builder" && (
+          <>
         {/* Log area */}
         {log.length > 0 && (
           <div
@@ -235,6 +264,26 @@ export function AiBuilderSheet({ open, onOpenChange, roomId }: AiBuilderSheetPro
 
         {error && !running && (
           <p className="text-xs text-red-600">{error}</p>
+        )}
+          </>
+        )}
+
+        {/* Image3DConverter Tab */}
+        {tab === "image3d" && (
+          <div className="flex-1 overflow-y-auto">
+            <Image3DConverter
+              onModelReady={(modelUrl) => {
+                // Optional: Add log entry when model is ready
+                setLog((prev) => [
+                  ...prev,
+                  { id: idRef.current++, type: "done", text: `✓ 3D model tayyor: ${modelUrl}` },
+                ])
+              }}
+              onError={(error) => {
+                setError(error)
+              }}
+            />
+          </div>
         )}
       </div>
     </BottomSheet>

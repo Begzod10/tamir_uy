@@ -77,6 +77,10 @@ class Settings(BaseSettings):
     AI_MODEL_BUILDER: str = "gpt-4-turbo"
     AI_MODEL_EXPLAINER: str = "gpt-4-mini"
 
+    # Meshy API — Image to 3D conversion
+    MESHY_API_KEY: str = ""
+    MESHY_API_URL: str = "https://api.meshy.ai/v2"
+
     # ------------------------------------------------------------------ #
     # Application
     # ------------------------------------------------------------------ #
