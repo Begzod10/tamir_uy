@@ -4,6 +4,7 @@ from uuid import UUID
 
 import structlog
 from fastapi import APIRouter, HTTPException, status
+from fastapi.responses import Response
 from sqlalchemy import select
 
 from app.api.v1.deps import CurrentUser, DbSession
@@ -134,11 +135,11 @@ async def update_room(room_id: UUID, body: RoomUpdate, db: DbSession, current_us
 @router.delete(
     "/rooms/{room_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    response_model=None,
-    summary="Delete a room (hard delete with deleted flag)",
+    summary="Delete a room (soft delete)",
 )
-async def delete_room(room_id: UUID, db: DbSession, current_user: CurrentUser) -> None:
+async def delete_room(room_id: UUID, db: DbSession, current_user: CurrentUser) -> Response:
     room = await _get_owned_room(room_id, current_user.id, db)
     room.deleted = True
     await db.flush()
     logger.info("room_deleted", room_id=str(room_id))
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
