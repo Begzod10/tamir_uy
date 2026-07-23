@@ -438,12 +438,17 @@ export const useRoomStore = create<RoomStore>()(
   },
 
   loadRoom(room) {
+    // Clear wall elements to prevent cross-room contamination from localStorage
+    const cleanGeometry = (room.geometry ? {
+      ...room.geometry,
+      walls: room.geometry.walls.map(w => ({ ...w, elements: [] })),
+    } : defaultGeometry());
     set({
       roomId: room.id ?? null,
       apartmentId: room.apartment_id ?? null,
       name: room.name ?? 'Xona',
       ceilingHeight: room.ceiling_height ?? 2700,
-      geometry: room.geometry ?? defaultGeometry(),
+      geometry: cleanGeometry,
       surfaces: room.surfaces ?? {},
       furniture: room.furniture ?? [],
       isDirty: false,
@@ -463,9 +468,14 @@ export const useRoomStore = create<RoomStore>()(
       lights?: PlacedLight[]
       userFurniture?: UserFurnitureEntry[]
     }
+    // Clear wall elements to prevent cross-room contamination from localStorage
+    const cleanGeometry = (s.geometry ? {
+      ...s.geometry,
+      walls: s.geometry.walls.map(w => ({ ...w, elements: [] })),
+    } : defaultGeometry());
     set({
       ceilingHeight: s.ceilingHeight ?? 2700,
-      geometry: s.geometry ?? defaultGeometry(),
+      geometry: cleanGeometry,
       wizardStep: s.wizardStep ?? 0,
       designState: s.designState ?? DEFAULT_DESIGN_STATE,
       name: s.name ?? 'Xona',
