@@ -382,15 +382,14 @@ function RoomGeometry({
         })()}
       </mesh>
 
-      {/* Ceiling — slightly visible, not glass */}
-      <mesh rotation={[Math.PI / 2, 0, 0]} position={[0, H, 0]}>
-        <planeGeometry args={[W, D]} />
+      {/* Ceiling — thin box to avoid Z-fighting with walls */}
+      <mesh position={[0, H - 0.02, 0]}>
+        <boxGeometry args={[W, 0.04, D]} />
         <meshStandardMaterial
           color="#F8F6F2"
           roughness={0.95}
-          transparent
-          opacity={0.55}
-          side={THREE.BackSide}
+          emissive="#E8E6E2"
+          emissiveIntensity={0.3}
         />
       </mesh>
 
@@ -399,7 +398,7 @@ function RoomGeometry({
         wallLength={W}
         wallHeight={H}
         thickness={T}
-        color={wallColor("A", "#F5F0E8")}
+        color={wallColor("A", "#D8D3C8")}
         elements={wallA?.elements ?? []}
         axis="X"
         wallCenterX={0}
@@ -414,7 +413,7 @@ function RoomGeometry({
         wallLength={D}
         wallHeight={H}
         thickness={T}
-        color={wallColor("B", "#EDE8DF")}
+        color={wallColor("B", "#D8D3C8")}
         elements={wallB?.elements ?? []}
         axis="Z"
         wallCenterX={W / 2}
@@ -429,7 +428,7 @@ function RoomGeometry({
         wallLength={W}
         wallHeight={H}
         thickness={T}
-        color={wallColor("C", "#F5F0E8")}
+        color={wallColor("C", "#D8D3C8")}
         elements={wallC?.elements ?? []}
         axis="X"
         wallCenterX={0}
@@ -444,7 +443,7 @@ function RoomGeometry({
         wallLength={D}
         wallHeight={H}
         thickness={T}
-        color={wallColor("D", "#EDE8DF")}
+        color={wallColor("D", "#D8D3C8")}
         elements={wallD?.elements ?? []}
         axis="Z"
         wallCenterX={-W / 2}
