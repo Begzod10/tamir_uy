@@ -551,6 +551,18 @@ export const useRoomStore = create<RoomStore>()(
     {
       name: 'uytamir-room-draft',
       version: 3,
+      partialize: (state) => ({
+        // Persist geometry with dimensions but CLEAR wall elements (doors/windows)
+        // They should not carry over between rooms
+        geometry: {
+          ...state.geometry,
+          walls: state.geometry.walls.map(w => ({ ...w, elements: [] })),
+        },
+        // Don't persist: designState (loaded from backend), roomId, surfaces, furniture, etc.
+        // These should be fresh for each room
+        ceilingHeight: state.ceilingHeight,
+        highQuality3d: state.highQuality3d,
+      }),
       migrate(persisted: unknown, version: number) {
         if (version < 2) {
           const old = persisted as { designState?: { wallColor?: string; floorType?: string } }
