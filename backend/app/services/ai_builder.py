@@ -152,6 +152,21 @@ TOOLS: list[dict] = [
         "description": "Joriy draft asosida smeta preview ni hisoblaydi va qaytaradi.",
         "input_schema": {"type": "object", "properties": {}, "required": []},
     },
+    {
+        "name": "manage_lights",
+        "description": "Shift chiroqlarini qo'shish yoki o'chirish.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["add", "remove_all"],
+                    "description": "Harakat: 'add' - chiroq qo'shish (4 ta), 'remove_all' - barcha chiroqlarni o'chirish.",
+                },
+            },
+            "required": ["action"],
+        },
+    },
 ]
 
 
@@ -167,6 +182,7 @@ class RoomDraft:
     surfaces: dict[str, str] = field(default_factory=dict)
     material_colors: dict[str, str] = field(default_factory=dict)  # surface_id -> color_hex
     furniture: list[dict] = field(default_factory=list)
+    lights: list[dict] = field(default_factory=list)  # ceiling lights
 
     def to_patch(self) -> dict[str, Any]:
         patch: dict[str, Any] = {}
@@ -180,6 +196,8 @@ class RoomDraft:
             patch["material_colors"] = self.material_colors
         if self.furniture:
             patch["furniture"] = self.furniture
+        if self.lights:
+            patch["lights"] = self.lights
         return patch
 
 
@@ -336,6 +354,23 @@ async def run_ai_builder(
                 return json.dumps(summary, ensure_ascii=False), True
             except Exception as exc:
                 return f"Xato: smeta hisoblashda muammo — {exc}", False
+
+        if name == "manage_lights":
+            action = args.get("action", "")
+            if action == "remove_all":
+                draft.lights = []
+                return "OK: barcha chiroqlar o'chirildi.", True
+            elif action == "add":
+                # Add default 4 lights in a 2x2 grid pattern
+                draft.lights = [
+                    {"x": -1.0, "y": -0.75},
+                    {"x": 1.0, "y": -0.75},
+                    {"x": -1.0, "y": 0.75},
+                    {"x": 1.0, "y": 0.75},
+                ]
+                return "OK: 4 ta chiroq qo'shildi.", True
+            else:
+                return f"Xato: noma'lum action '{action}'. 'add' yoki 'remove_all' dan foydalaning.", False
 
         return f"Xato: noma'lum tool '{name}'.", False
 
