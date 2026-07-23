@@ -56,7 +56,7 @@ export default function ProfilePage() {
               {loggedIn ? "Foydalanuvchi" : "Mehmon"}
             </p>
             <p className="text-white/60 text-sm mt-0.5">
-              {loggedIn ? "UyTa'mir foydalanuvchisi" : "Kirish qilinmagan"}
+              {loggedIn ? "UyVision foydalanuvchisi" : "Kirish qilinmagan"}
             </p>
           </div>
         </div>
@@ -108,7 +108,7 @@ export default function ProfilePage() {
 
       {/* App version */}
       <p className="text-center text-xs text-muted mt-8 opacity-50">
-        UyTa'mir v1.0.0
+        UyVision v1.0.0
       </p>
     </div>
   );

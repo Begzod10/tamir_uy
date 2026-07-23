@@ -249,7 +249,7 @@ export default function LoginPage() {
         <div className="w-16 h-16 rounded-2xl bg-brand flex items-center justify-center text-3xl mx-auto mb-3">
           🏠
         </div>
-        <h1 className="text-2xl font-bold text-gray-900">UyTa'mir</h1>
+        <h1 className="text-2xl font-bold text-gray-900">UyVision</h1>
         <p className="text-sm text-muted mt-1">Interior dizayn platformasi</p>
       </div>
 
@@ -470,7 +470,7 @@ export default function LoginPage() {
         )}
       </div>
 
-      <p className="text-xs text-muted mt-6 text-center opacity-60">UyTa'mir v1.0.0</p>
+      <p className="text-xs text-muted mt-6 text-center opacity-60">UyVision v1.0.0</p>
     </div>
   );
 }
