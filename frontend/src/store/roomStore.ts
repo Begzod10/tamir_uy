@@ -193,6 +193,7 @@ interface RoomStore {
   setWallCovering(wallId: string, covering: WallCovering): void
   setWallPanel(wallId: string, settings: WallPanelSettings): void
   setHighQuality3d(v: boolean): void
+  resetDesignState(): void
   resetRoom(): void
 }
 
@@ -209,7 +210,7 @@ const defaultGeometry = (): RoomGeometry => ({
 
 // ─── Store ────────────────────────────────────────────────────────────────────
 
-const DEFAULT_DESIGN_STATE: DesignState = {
+export const DEFAULT_DESIGN_STATE: DesignState = {
   wallCoverings: { ALL: { kind: 'paint', color: '#D8D3C8' } },
   floorType: 'parquet',
   wallPanels: {
@@ -522,6 +523,10 @@ export const useRoomStore = create<RoomStore>()(
 
   setHighQuality3d(v) {
     set({ highQuality3d: v })
+  },
+
+  resetDesignState() {
+    set({ designState: DEFAULT_DESIGN_STATE, isDirty: true })
   },
 
   resetRoom() {
