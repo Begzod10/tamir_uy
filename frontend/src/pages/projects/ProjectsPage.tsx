@@ -172,11 +172,13 @@ function EmptyProjects() {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function ProjectsPage() {
+  const [showDeleted, setShowDeleted] = useState(false);
+
   const { data: apartments = [], isLoading } = useQuery({
-    queryKey: ["apartments"],
+    queryKey: ["apartments", showDeleted],
     queryFn: async () => {
       try {
-        return await getApartments();
+        return await getApartments(showDeleted);
       } catch (err) {
         if (err instanceof Error && err.message === "Unauthorized") return [];
         throw err;
@@ -226,9 +228,16 @@ export default function ProjectsPage() {
             {/* Project list header */}
             <div className="flex items-center justify-between mb-3 lg:mt-0 lg:pt-0">
               <h2 className="text-[17px] font-extrabold text-gray-900">Mening loyihalarim</h2>
-              {apartments.length > 0 && (
-                <button className="text-[13px] font-semibold text-brand">Barchasi</button>
-              )}
+              <button
+                onClick={() => setShowDeleted(!showDeleted)}
+                className={`text-[13px] font-semibold px-3 py-1.5 rounded-lg transition-colors ${
+                  showDeleted
+                    ? "bg-red-100 text-red-600"
+                    : "text-brand hover:bg-blue-50"
+                }`}
+              >
+                {showDeleted ? "🗑️ O'chirilganlar" : "Barchasi"}
+              </button>
             </div>
 
             {isLoading ? (

@@ -22,7 +22,7 @@ router = APIRouter(prefix="/apartments", tags=["apartments"])
     response_model=list[ApartmentWithRooms],
     summary="List all apartments with their rooms",
 )
-async def list_apartments(db: DbSession, current_user: CurrentUser) -> list[ApartmentWithRooms]:
+async def list_apartments(db: DbSession, current_user: CurrentUser, include_deleted: bool = False) -> list[ApartmentWithRooms]:
     result = await db.execute(
         select(Apartment)
         .where(Apartment.user_id == current_user.id)
@@ -30,10 +30,11 @@ async def list_apartments(db: DbSession, current_user: CurrentUser) -> list[Apar
         .order_by(Apartment.created_at.desc())
     )
     apartments = result.scalars().all()
-    # Filter out deleted rooms from each apartment's rooms list
-    for apt in apartments:
-        if apt.rooms:
-            apt.rooms = [r for r in apt.rooms if not r.deleted]
+    # Filter deleted rooms unless include_deleted is True
+    if not include_deleted:
+        for apt in apartments:
+            if apt.rooms:
+                apt.rooms = [r for r in apt.rooms if not r.deleted]
     return [ApartmentWithRooms.model_validate(a) for a in apartments]
 
 
@@ -61,7 +62,7 @@ async def create_apartment(body: ApartmentCreate, db: DbSession, current_user: C
     response_model=ApartmentWithRooms,
     summary="Get apartment with rooms list",
 )
-async def get_apartment(apartment_id: UUID, db: DbSession, current_user: CurrentUser) -> ApartmentWithRooms:
+async def get_apartment(apartment_id: UUID, db: DbSession, current_user: CurrentUser, include_deleted: bool = False) -> ApartmentWithRooms:
     result = await db.execute(
         select(Apartment)
         .where(Apartment.id == apartment_id, Apartment.user_id == current_user.id)
@@ -70,8 +71,8 @@ async def get_apartment(apartment_id: UUID, db: DbSession, current_user: Current
     apartment = result.scalar_one_or_none()
     if apartment is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Apartment not found")
-    # Filter out deleted rooms
-    if apartment.rooms:
+    # Filter out deleted rooms unless include_deleted is True
+    if not include_deleted and apartment.rooms:
         apartment.rooms = [r for r in apartment.rooms if not r.deleted]
     return ApartmentWithRooms.model_validate(apartment)
 

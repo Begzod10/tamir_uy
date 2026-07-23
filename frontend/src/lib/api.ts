@@ -177,8 +177,9 @@ export interface CreateApartmentData {
 
 // ---------- Apartments ----------
 
-export async function getApartments(): Promise<Apartment[]> {
-  return apiClient<Apartment[]>("/apartments");
+export async function getApartments(includeDeleted: boolean = false): Promise<Apartment[]> {
+  const url = `/apartments${includeDeleted ? "?include_deleted=true" : ""}`;
+  return apiClient<Apartment[]>(url);
 }
 
 export async function createApartment(
