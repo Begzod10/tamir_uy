@@ -110,12 +110,12 @@ export function AiBuilderSheet({ open, onOpenChange, roomId }: AiBuilderSheetPro
       for (const [surfaceId, materialId] of Object.entries(pendingPatch.surfaces)) {
         store.applySurface(surfaceId, materialId)
       }
+    }
 
-      // Apply material colors if available
-      if (pendingPatch.material_colors) {
-        for (const [surfaceId, hexColor] of Object.entries(pendingPatch.material_colors)) {
-          store.setWallCovering(surfaceId, { kind: 'paint', color: hexColor })
-        }
+    // Apply material colors (must be separate so paint color is applied)
+    if (pendingPatch.material_colors) {
+      for (const [surfaceId, hexColor] of Object.entries(pendingPatch.material_colors)) {
+        store.setWallCovering(surfaceId, { kind: 'paint', color: hexColor })
       }
     }
 

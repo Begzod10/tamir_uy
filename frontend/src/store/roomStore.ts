@@ -212,6 +212,18 @@ const defaultGeometry = (): RoomGeometry => ({
 const DEFAULT_DESIGN_STATE: DesignState = {
   wallCoverings: { ALL: { kind: 'paint', color: '#F5F0E8' } },
   floorType: 'parquet',
+  wallPanels: {
+    ALL: {
+      enabled: false,
+      width: 300,
+      height: 600,
+      depth: 20,
+      rotation: 0,
+      gap: 10,
+      chamfer: 0,
+      color: '#D4C5B0',
+    },
+  },
 }
 
 export const useRoomStore = create<RoomStore>()(

@@ -101,7 +101,10 @@ _client: Optional[AsyncOpenAI] = None
 def get_client() -> AsyncOpenAI:
     global _client
     if _client is None:
-        _client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+        from httpx import Timeout
+        # Set longer timeout for AI calls (default 60s → 120s)
+        timeout = Timeout(120.0)
+        _client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY, timeout=timeout)
     return _client
 
 

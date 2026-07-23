@@ -36,7 +36,17 @@ Qoidalar (MAJBURIY):
 2. Narx yoki maydon miqdorini HECH QACHON o'zingiz hisoblang — run_estimate_preview tooldan foydalaning.
 3. O'zgarish qilishdan oldin avval get_room_state bilan holatni tekshiring.
 4. Draft rejimda ishlaysiz — foydalanuvchi "Qo'llash" ni bosgandan keyingina saqlanadi.
-5. Ko'pi bilan 25 ta tool chaqiruv ishlating, keyin natijani xulosalang."""
+5. Ko'pi bilan 25 ta tool chaqiruv ishlating, keyin natijani xulosalang.
+
+DEVOR/POL/SHIFT RANGLARI O'ZGARTIRISH:
+- Devor rengini o'zgartirish uchun: avval list_materials(category='boyoq') orqali rang katalogini oling
+- Keyin apply_material(surface_ids=['A', 'B', 'C', 'D'], material_id='<olingan ID>') chaqiring
+- Devor IDlari: 'A', 'B', 'C', 'D' — xonaning to'rt devori
+- Pol: surface_id='floor', Shift: surface_id='ceiling'
+- Har bir apply_material chaqiruvida oq, kulrang, pushti va boshqa ranglarni sinab ko'ring
+
+MEBEL JOYLASHUVI:
+- list_furniture() orqali katalogni oling va keyin place_furniture() bilan joylashtiring"""
 
 # ---------------------------------------------------------------------------
 # Tool definitions (name/description/input_schema — translated to the
