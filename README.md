@@ -1,6 +1,6 @@
-# UyTa'mir
+# UyVision
 
-Uzbek renovation planning platform.
+AI-powered home renovation and room design platform for Uzbekistan.
 
 ## Quick Start
 

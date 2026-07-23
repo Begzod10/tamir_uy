@@ -559,7 +559,7 @@ export const useRoomStore = create<RoomStore>()(
   },
 }),
     {
-      name: 'uytamir-room-draft',
+      name: 'uyvision-room-draft',
       version: 3,
       partialize: (state) => ({
         draftId: state.draftId,
