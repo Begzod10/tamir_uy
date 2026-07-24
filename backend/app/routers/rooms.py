@@ -78,6 +78,23 @@ async def create_room(apt_id: UUID, body: RoomCreate, db: DbSession, current_use
 
 
 @router.get(
+    "/apartments/{apt_id}/rooms",
+    response_model=list[RoomOut],
+    summary="List all rooms of an apartment with full details",
+)
+async def list_rooms(apt_id: UUID, db: DbSession, current_user: CurrentUser) -> list[RoomOut]:
+    await _get_owned_apartment(apt_id, current_user.id, db)
+    result = await db.execute(
+        select(Room)
+        # updated_at shifts on every edit, which would reshuffle the top-view
+        # layout — order by id for a stable (if arbitrary) room order.
+        .where(Room.apartment_id == apt_id, Room.deleted == False)
+        .order_by(Room.id)
+    )
+    return [RoomOut.model_validate(r) for r in result.scalars().all()]
+
+
+@router.get(
     "/rooms/{room_id}",
     response_model=RoomOut,
     summary="Get full room details",

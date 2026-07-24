@@ -13,7 +13,7 @@ import { IsometricRoomPreview } from '@/components/wizard/IsometricRoomPreview'
 import { WallElevationPreview } from '@/components/wizard/WallElevationPreview'
 import { MetricCard } from '@/components/ui/MetricCard'
 import { BottomSheet } from '@/components/ui/BottomSheet'
-import { createApartment, createRoom, createDraftRoom, getDraftRoom, updateDraftRoom, deleteDraftRoom } from '@/lib/api'
+import { createApartment, createRoom, createDraftRoom, getDraftRoom, updateDraftRoom, deleteDraftRoom, updateRoom } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -597,6 +597,16 @@ export default function WizardPage() {
   // ── On mount: fetch existing draft or create a new one ──────────────────
   React.useEffect(() => {
     async function initDraft() {
+      // The wizard only creates NEW rooms. A roomId left in the store (e.g.
+      // arriving via "+ add room" from the studio) would make handleSave()
+      // bail out early and the new room would never be created.
+      if (roomId) {
+        resetRoom()
+        const draft = await createDraftRoom({})
+        setDraftId(draft.id)
+        setDraftLoaded(true)
+        return
+      }
       if (draftId) {
         try {
           const draft = await getDraftRoom(draftId)
@@ -695,13 +705,40 @@ export default function WizardPage() {
     }
   }
 
+  // Directional "+ add room": place the new room on the side of the anchor
+  // room that the user pressed. Runs at the results step, when the entered
+  // dimensions are final (the room row itself may be created earlier by
+  // autosave, before the user finishes editing wall lengths).
+  async function persistLayoutPos() {
+    const side = searchParams.get('side')
+    if (!side) return
+    const s = useRoomStore.getState()
+    if (!s.roomId) return
+    const ax = parseFloat(searchParams.get('ax') ?? '0')
+    const az = parseFloat(searchParams.get('az') ?? '0')
+    const aw = parseFloat(searchParams.get('aw') ?? '0')
+    const ad = parseFloat(searchParams.get('ad') ?? '0')
+    const newW = (s.geometry.walls.find((w) => w.id === 'B')?.length ?? 3000) / 1000
+    const newD = (s.geometry.walls.find((w) => w.id === 'A')?.length ?? 4000) / 1000
+    const GAP = 0.15
+    const pos =
+      side === 'east'  ? { x: ax + aw / 2 + GAP + newW / 2, z: az } :
+      side === 'west'  ? { x: ax - aw / 2 - GAP - newW / 2, z: az } :
+      side === 'north' ? { x: ax, z: az - ad / 2 - GAP - newD / 2 } :
+                         { x: ax, z: az + ad / 2 + GAP + newD / 2 }
+    s.setLayoutPos(pos)
+    try {
+      await updateRoom(s.roomId, { state: { layoutPos: pos } })
+    } catch { /* offline / local-only room — position still kept in the store */ }
+  }
+
   function goNext() {
     const nextStep = step + 1
     setDir(1)
     setStep(nextStep)
     setWizardStep(nextStep)
     if (nextStep === totalSteps - 1) {
-      void handleSave()
+      void handleSave().then(() => void persistLayoutPos())
     }
   }
 

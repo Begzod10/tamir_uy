@@ -23,7 +23,9 @@ import { createOboyTexture } from "@/lib/oboyPatterns";
 import type { OboyPatternId } from "@/lib/oboyPatterns";
 import { resolveElementPositions } from "@/lib/wallPositions";
 import { FURNITURE_CATALOG } from "@/lib/furnitureCatalog";
+import { getRooms } from "@/lib/api";
 import type { Room } from "@/lib/api";
+import { useQuery } from "@tanstack/react-query";
 import * as THREE from "three";
 import { EffectComposer, N8AO, SMAA } from "@react-three/postprocessing";
 
@@ -1539,11 +1541,13 @@ const ADD_ROOM_BTN_STYLE: React.CSSProperties = {
   lineHeight: 1,
 };
 
-function AddRoomButtons({ W, D, H, onAdd, disabled }: { W: number; D: number; H: number; onAdd: () => void; disabled?: boolean }) {
+export type RoomSide = 'north' | 'south' | 'east' | 'west';
+
+function AddRoomButtons({ W, D, H, onAdd, disabled }: { W: number; D: number; H: number; onAdd: (side: RoomSide) => void; disabled?: boolean }) {
   const btnY = H * 0.5;
   const gap = 1.5;
 
-  const sides: { key: string; pos: [number, number, number] }[] = [
+  const sides: { key: RoomSide; pos: [number, number, number] }[] = [
     { key: 'north', pos: [0,             btnY, -(D / 2 + gap)] },
     { key: 'south', pos: [0,             btnY,  D / 2 + gap]   },
     { key: 'east',  pos: [ W / 2 + gap,  btnY, 0]              },
@@ -1556,7 +1560,7 @@ function AddRoomButtons({ W, D, H, onAdd, disabled }: { W: number; D: number; H:
         <Html key={key} position={pos} center zIndexRange={[100, 0]}>
           <button
             style={{ ...ADD_ROOM_BTN_STYLE, opacity: disabled ? 0.6 : 1, cursor: disabled ? 'wait' : 'pointer' }}
-            onClick={onAdd}
+            onClick={() => onAdd(key)}
             disabled={disabled}
             title="Xona qo'shish"
           >
@@ -1564,6 +1568,136 @@ function AddRoomButtons({ W, D, H, onAdd, disabled }: { W: number; D: number; H:
           </button>
         </Html>
       ))}
+    </>
+  );
+}
+
+// ─── Sibling rooms (top view floor plan) ──────────────────────────────────────
+// Renders the apartment's other rooms as flat clickable outlines beside the
+// active room. Data and navigation come in as props: router/query contexts
+// don't bridge into the R3F Canvas tree.
+
+const SIBLING_LABEL_STYLE: React.CSSProperties = {
+  padding: '4px 12px',
+  borderRadius: 999,
+  border: '1px solid #E5E0D5',
+  background: 'rgba(255,255,255,0.92)',
+  color: '#4A4438',
+  fontSize: 12,
+  fontWeight: 600,
+  whiteSpace: 'nowrap',
+  cursor: 'pointer',
+  boxShadow: '0 1px 4px rgba(0,0,0,0.12)',
+};
+
+function roomFootprint(r: Room, activeId: string, activeW: number, activeD: number): { w: number; d: number } {
+  if (r.id === activeId) return { w: activeW, d: activeD };
+  const wallB = r.geometry?.walls?.find((w) => w.id === 'B');
+  const wallA = r.geometry?.walls?.find((w) => w.id === 'A');
+  return { w: wallB?.length ?? 3, d: wallA?.length ?? 4 };
+}
+
+function roomLayoutPos(r: Room | undefined): { x: number; z: number } | undefined {
+  const p = (r?.state as { layoutPos?: { x: number; z: number } } | null | undefined)?.layoutPos;
+  return p && Number.isFinite(p.x) && Number.isFinite(p.z) ? p : undefined;
+}
+
+/**
+ * Absolute apartment position for every room, in ONE shared frame:
+ * rooms with a stored layoutPos use it verbatim; legacy rooms (no position)
+ * form a row along X with the first of them at the origin — the same origin
+ * the "+ add room" flow assumes for unpositioned anchors.
+ */
+function computeAbsolutePositions(
+  rooms: Room[],
+  activeId: string,
+  activeW: number,
+  activeD: number,
+): Map<string, { x: number; z: number }> {
+  const GAP = 1.2;
+  const abs = new Map<string, { x: number; z: number }>();
+  let cursor = 0;
+  let originOffset: number | null = null;
+  for (const r of rooms) {
+    const stored = roomLayoutPos(r);
+    if (stored) {
+      abs.set(r.id, stored);
+      continue;
+    }
+    const { w } = roomFootprint(r, activeId, activeW, activeD);
+    const slot = cursor + w / 2;
+    cursor += w + GAP;
+    if (originOffset === null) originOffset = slot; // first legacy room = origin
+    abs.set(r.id, { x: slot - originOffset, z: 0 });
+  }
+  return abs;
+}
+
+function SiblingRooms({
+  rooms,
+  activeId,
+  activeW,
+  activeD,
+  activePos,
+  onOpen,
+}: {
+  rooms: Room[];
+  activeId: string;
+  activeW: number;
+  activeD: number;
+  activePos: { x: number; z: number } | null;
+  onOpen: (roomId: string) => void;
+}) {
+  const layout = useMemo(() => {
+    if (rooms.length < 2) return [];
+    const abs = computeAbsolutePositions(rooms, activeId, activeW, activeD);
+    // The view is centred on the active room — subtract its absolute position.
+    const anchor = activePos ?? abs.get(activeId) ?? { x: 0, z: 0 };
+    return rooms
+      .filter((r) => r.id !== activeId)
+      .map((r) => {
+        const { w, d } = roomFootprint(r, activeId, activeW, activeD);
+        const p = abs.get(r.id) ?? { x: 0, z: 0 };
+        return { room: r, w, d, x: p.x - anchor.x, z: p.z - anchor.z };
+      });
+  }, [rooms, activeId, activeW, activeD, activePos]);
+
+  return (
+    <>
+      {layout.map(({ room: sib, w, d, x, z }) => {
+        const open = () => onOpen(sib.id);
+        const h = sib.ceiling_h ?? 2.7;
+        const walls: Array<{ p: [number, number, number]; s: [number, number, number] }> = [
+          { p: [0, h / 2, -d / 2], s: [w + 0.08, h, 0.08] },
+          { p: [0, h / 2, d / 2], s: [w + 0.08, h, 0.08] },
+          { p: [-w / 2, h / 2, 0], s: [0.08, h, d] },
+          { p: [w / 2, h / 2, 0], s: [0.08, h, d] },
+        ];
+        return (
+          <group key={sib.id} position={[x, 0, z]}>
+            <mesh
+              position={[0, 0.02, 0]}
+              onClick={(e) => { e.stopPropagation(); open(); }}
+              onPointerOver={() => { document.body.style.cursor = 'pointer'; }}
+              onPointerOut={() => { document.body.style.cursor = 'auto'; }}
+            >
+              <boxGeometry args={[w, 0.04, d]} />
+              <meshStandardMaterial color="#D9C9A8" transparent opacity={0.85} />
+            </mesh>
+            {walls.map((seg, i) => (
+              <mesh key={i} position={seg.p}>
+                <boxGeometry args={seg.s} />
+                <meshStandardMaterial color="#C9C2B4" transparent opacity={0.65} />
+              </mesh>
+            ))}
+            <Html position={[0, h + 0.3, 0]} center zIndexRange={[90, 0]}>
+              <button style={SIBLING_LABEL_STYLE} onClick={open} title="Xonani ochish">
+                {sib.name} ↗
+              </button>
+            </Html>
+          </group>
+        );
+      })}
     </>
   );
 }
@@ -2509,17 +2643,35 @@ const RENO_STAGES: Array<{ key: PhaseKey; label: string }> = [
 
 export default function ThreeDPage() {
   const { room, onSave } = useOutletContext<StudioContext>();
-  const { geometry, designState, highQuality3d } = useRoomStore();
+  const { geometry, designState, highQuality3d, resetRoom } = useRoomStore();
   const navigate = useNavigate();
   const [addingRoom, setAddingRoom] = useState(false);
 
-  async function handleAddRoom() {
+  async function handleAddRoom(side: RoomSide) {
     if (addingRoom) return;
     setAddingRoom(true);
     try { await onSave(); } catch { /* continue even if save fails (offline mode) */ }
     setAddingRoom(false);
     const aptId = room.apartment_id && room.apartment_id !== 'local' ? room.apartment_id : null;
-    navigate(aptId ? `/wizard?apartmentId=${aptId}` : '/wizard');
+    // Anchor info for directional placement — captured before resetRoom clears it
+    const myPos = useRoomStore.getState().layoutPos ?? { x: 0, z: 0 };
+    // Clear the current room from the store (roomId, draftId, geometry, …).
+    // The wizard's handleSave() bails out when roomId is already set, so a
+    // stale roomId means the new room is never created via createRoom().
+    resetRoom();
+    if (aptId) {
+      const q = new URLSearchParams({
+        apartmentId: aptId,
+        side,
+        ax: String(myPos.x),
+        az: String(myPos.z),
+        aw: String(W),
+        ad: String(D),
+      });
+      navigate(`/wizard?${q.toString()}`);
+    } else {
+      navigate('/wizard');
+    }
   }
 
   // Fall back to geometry wall lengths when API room has width/length = 0
@@ -2538,10 +2690,12 @@ export default function ThreeDPage() {
   const useComposer = highQuality3d && declineCount < 2;
   const [toolMode, setToolMode] = useState<ToolMode>('select');
   const [lightsOn, setLightsOn] = useState(true);
+  const [sceneLightOn, setSceneLightOn] = useState(true);
   const [selectedFurId, setSelectedFurId] = useState<string | null>(null);
   const [angleInputDeg, setAngleInputDeg] = useState('');
   const furniture = useRoomStore((s) => s.furniture);
   const moveFurniture = useRoomStore((s) => s.moveFurniture);
+  const activeLayoutPos = useRoomStore((s) => s.layoutPos);
   const [activePhase, setActivePhase] = useState<PhaseKey>('boyoq');
   const [showAddSheet, setShowAddSheet] = useState(false);
   const [showAiSheet, setShowAiSheet] = useState(false);
@@ -2553,6 +2707,29 @@ export default function ThreeDPage() {
 
 
   const topView = preset === "top";
+
+  // Sibling rooms for the top-view floor plan (fetched outside the Canvas —
+  // contexts don't bridge into the R3F tree)
+  const aptId = room.apartment_id && room.apartment_id !== 'local' ? room.apartment_id : null;
+  const { data: aptRooms } = useQuery({
+    queryKey: ['apt-rooms', aptId],
+    queryFn: () => getRooms(aptId!),
+    enabled: topView && !!aptId,
+    staleTime: 5_000,
+  });
+
+  // Backfill: legacy rooms have no stored position. Assign this room its slot
+  // in the shared absolute frame so the "+ add room" anchor math and the
+  // sibling rendering agree; the next save persists it.
+  useEffect(() => {
+    if (!aptRooms) return;
+    const s = useRoomStore.getState();
+    if (s.layoutPos || s.roomId !== room.id) return;
+    const pos = computeAbsolutePositions(aptRooms, room.id, W, D).get(room.id);
+    if (pos) s.setLayoutPos(pos);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [aptRooms, room.id]);
+
   const cam = useMemo(
     () => getCamera(preset, W, D, H),
     [preset, W, D, H],
@@ -2737,6 +2914,22 @@ export default function ThreeDPage() {
                 </form>
               )
             })()}
+            {/* Scene light (sun + environment) toggle */}
+            <button
+              onClick={() => setSceneLightOn(v => !v)}
+              title={sceneLightOn ? "Sahna yorug'ligini o'chirish" : "Sahna yorug'ligini yoqish"}
+              className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium transition-colors border shrink-0 ${
+                sceneLightOn
+                  ? 'bg-sky-100 text-sky-700 border-sky-300 hover:bg-sky-200'
+                  : 'bg-gray-800 text-gray-300 border-gray-600 hover:bg-gray-700'
+              }`}
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="4" />
+                <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" />
+              </svg>
+              <span className="hidden sm:inline">{sceneLightOn ? 'Kunduz' : 'Tun'}</span>
+            </button>
             <button
               onClick={() => setLightsOn(v => !v)}
               title={lightsOn ? "Chiroqni o'chirish" : "Chiroqni yoqish"}
@@ -2812,7 +3005,7 @@ export default function ThreeDPage() {
           onPointerMissed={() => setSelectedFurId(null)}
           dpr={dpr}
         >
-          <color attach="background" args={["#E8E4DC"]} />
+          <color attach="background" args={[sceneLightOn ? "#E8E4DC" : "#14171F"]} />
           <fog attach="fog" args={["#E8E4DC", 12, 30]} />
 
           {/* Infinite workspace grid — only shown in top-down (Yuqori) view */}
@@ -2845,13 +3038,20 @@ export default function ThreeDPage() {
           />
 
           <Suspense fallback={null}>
-            <SceneLighting
-              width={W}
-              depth={D}
-              height={H}
-              highQuality={highQuality3d}
-            />
-            <Environment preset="apartment" environmentIntensity={0.35} />
+            {sceneLightOn && (
+              <>
+                <SceneLighting
+                  width={W}
+                  depth={D}
+                  height={H}
+                  highQuality={highQuality3d}
+                />
+                <Environment preset="apartment" environmentIntensity={0.35} />
+              </>
+            )}
+            {/* Scene light off: barely-visible ambient so the room stays navigable;
+                the room's own lamps (lightsOn) become the dominant light source */}
+            {!sceneLightOn && <ambientLight intensity={0.08} color="#8090B0" />}
 
             <RoomScene
               room={room}
@@ -2875,6 +3075,20 @@ export default function ThreeDPage() {
             />
             <SwapButtons W={W} D={D} H={H} />
             {topView && <AddRoomButtons W={W} D={D} H={H} onAdd={handleAddRoom} disabled={addingRoom} />}
+            {topView && aptRooms && (
+              <SiblingRooms
+                rooms={aptRooms}
+                activeId={room.id}
+                activeW={W}
+                activeD={D}
+                activePos={activeLayoutPos}
+                onOpen={async (id) => {
+                  // Persist the current room before switching so edits survive
+                  try { await onSave(); } catch { /* offline — switch anyway */ }
+                  navigate(`/studio/${id}`);
+                }}
+              />
+            )}
             <DraggableFurnitureModels controlsRef={controlsRef} roomW={W} roomD={D} toolMode={toolMode} selectedId={selectedFurId} onSelectItem={setSelectedFurId} />
             <DraggableElectricalModels controlsRef={controlsRef} W={W} D={D} />
             <DraggableLightModels controlsRef={controlsRef} roomW={W} roomD={D} roomH={H} toolMode={toolMode} lightsOn={lightsOn} highQuality={highQuality3d} />

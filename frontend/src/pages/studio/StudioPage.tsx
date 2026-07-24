@@ -43,7 +43,7 @@ export default function StudioPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const storeState = useRoomStore();
-  const { draftId, loadDraftState } = useRoomStore();
+  const { draftId, loadDraftState, setApartmentId } = useRoomStore();
   const isDirty = useRoomStore((s) => s.isDirty);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -64,6 +64,7 @@ export default function StudioPage() {
         furniture: s.furniture,
         electricals: s.electricals,
         lights: s.lights,
+        layoutPos: s.layoutPos,
       };
 
       // Geometry in backend format: lengths in metres, positions 0-1 fraction
@@ -207,7 +208,22 @@ export default function StudioPage() {
   // When a saved room loads from API and has a full state blob, restore it into the store.
   useEffect(() => {
     if (!apiRoom) return;
+    // Keep the store's apartment linkage in sync — localRoom.apartment_id
+    // (and the "+ add room" flow) read it from the store, not the API response.
+    setApartmentId(apiRoom.apartment_id ?? null);
     const state = (apiRoom as unknown as { state?: Record<string, unknown> }).state;
+    const s = useRoomStore.getState();
+    if (s.roomId !== apiRoom.id) {
+      // The store holds a DIFFERENT room's data (e.g. switching rooms from the
+      // top-view floor plan). Replace it wholesale so every room opens with its
+      // own geometry and design instead of inheriting the previous room's.
+      s.resetRoom();
+      if (state) loadDraftState(state);
+      // loadRoom last: authoritative ids + geometry (with door/window elements)
+      // from the API override whatever the state blob carried.
+      useRoomStore.getState().loadRoom(apiRoom);
+      return;
+    }
     if (!state) return;
     const hasElements = storeState.geometry.walls.some(w => w.elements.length > 0);
     if (hasElements) return;

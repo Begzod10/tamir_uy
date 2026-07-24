@@ -64,6 +64,12 @@ export default defineConfig({
     },
   },
   server: {
+    // Inotify events don't cross the Windows→Docker bind mount, so Vite's
+    // module cache goes stale without polling (edits silently never served).
+    watch: {
+      usePolling: true,
+      interval: 800,
+    },
     proxy: {
       "/api": {
         target: "http://localhost:8000",

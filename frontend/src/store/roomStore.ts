@@ -130,12 +130,22 @@ export function resolveWallColor(
 
 interface RoomPayload {
   id?: string
-  apartment_id?: string
+  apartment_id?: string | null
   name?: string
-  ceiling_height?: number
-  geometry?: RoomGeometry
-  surfaces?: AppliedSurfaces
-  furniture?: PlacedFurniture[]
+  ceiling_h?: number | null
+  geometry?: {
+    walls: Array<{
+      id: string
+      length: number
+      elements?: Array<{
+        type: string
+        width: number
+        height: number
+        sill_height?: number | null
+        position?: number | null
+      }>
+    }>
+  } | null
 }
 
 // ─── Store interface ──────────────────────────────────────────────────────────
@@ -157,6 +167,8 @@ interface RoomStore {
   wizardStep: number
   designState: DesignState
   highQuality3d: boolean
+  /** Room's position in the apartment floor plan (metres); null = not placed */
+  layoutPos: { x: number; z: number } | null
 
   // Actions
   setDraftId(id: string | null): void
@@ -186,6 +198,8 @@ interface RoomStore {
   loadRoom(room: RoomPayload): void
   loadDraftState(state: Record<string, unknown>): void
   setRoomId(id: string): void
+  setApartmentId(id: string | null): void
+  setLayoutPos(pos: { x: number; z: number } | null): void
   markSaved(): void
   setWizardStep(step: number): void
   setDesignState(patch: Partial<DesignState>): void
@@ -246,6 +260,7 @@ export const useRoomStore = create<RoomStore>()(
   designState: DEFAULT_DESIGN_STATE,
   // Auto-detect mobile: no fine pointer = touch device → default off
   highQuality3d: typeof window !== 'undefined' && window.matchMedia('(pointer:fine)').matches,
+  layoutPos: null,
 
   setDraftId(id) {
     set({ draftId: id })
@@ -438,19 +453,33 @@ export const useRoomStore = create<RoomStore>()(
   },
 
   loadRoom(room) {
-    // Clear wall elements to prevent cross-room contamination from localStorage
-    const cleanGeometry = (room.geometry ? {
-      ...room.geometry,
-      walls: room.geometry.walls.map(w => ({ ...w, elements: [] })),
-    } : defaultGeometry());
+    // API geometry is in metres with 0–1 position fractions; the store uses mm.
+    // Sets only identity + authoritative geometry — design state, furniture and
+    // lights are per-room data restored separately from the room's state blob.
+    const geometry: RoomGeometry = room.geometry?.walls?.length
+      ? {
+          walls: room.geometry.walls.map((w) => {
+            const lengthMm = Math.round(w.length * 1000)
+            return {
+              id: w.id,
+              length: lengthMm,
+              elements: (w.elements ?? []).map((e) => ({
+                type: e.type as WallElement['type'],
+                width: Math.round(e.width * 1000),
+                height: Math.round(e.height * 1000),
+                sill_height: Math.round((e.sill_height ?? 0) * 1000),
+                position: Math.round((e.position ?? 0.5) * lengthMm),
+              })),
+            }
+          }),
+        }
+      : defaultGeometry()
     set({
       roomId: room.id ?? null,
       apartmentId: room.apartment_id ?? null,
       name: room.name ?? 'Xona',
-      ceilingHeight: room.ceiling_height ?? 2700,
-      geometry: cleanGeometry,
-      surfaces: room.surfaces ?? {},
-      furniture: room.furniture ?? [],
+      ceilingHeight: Math.round((room.ceiling_h ?? 2.7) * 1000),
+      geometry,
       isDirty: false,
     })
   },
@@ -467,6 +496,7 @@ export const useRoomStore = create<RoomStore>()(
       electricals?: PlacedElectrical[]
       lights?: PlacedLight[]
       userFurniture?: UserFurnitureEntry[]
+      layoutPos?: { x: number; z: number }
     }
     // Clear wall elements to prevent cross-room contamination from localStorage
     const cleanGeometry = (s.geometry ? {
@@ -484,12 +514,21 @@ export const useRoomStore = create<RoomStore>()(
       electricals: s.electricals ?? [],
       lights: s.lights ?? [],
       userFurniture: s.userFurniture ?? [],
+      layoutPos: s.layoutPos ?? null,
       isDirty: false,
     })
   },
 
   setRoomId(id) {
     set({ roomId: id })
+  },
+
+  setApartmentId(id) {
+    set({ apartmentId: id })
+  },
+
+  setLayoutPos(pos) {
+    set({ layoutPos: pos })
   },
 
   markSaved() {
@@ -555,6 +594,7 @@ export const useRoomStore = create<RoomStore>()(
       isDirty: false,
       wizardStep: 0,
       designState: DEFAULT_DESIGN_STATE,
+      layoutPos: null,
     })
   },
 }),
